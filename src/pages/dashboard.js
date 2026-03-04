@@ -29,7 +29,7 @@ function getDateForDay(dayName) {
   const diff = targetIdx - todayDayIdx + (weekOffset * 7);
   const target = new Date(today);
   target.setDate(today.getDate() + diff);
-  return target.toISOString().slice(0, 10);
+  return `${target.getFullYear()}-${String(target.getMonth() + 1).padStart(2, '0')}-${String(target.getDate()).padStart(2, '0')}`;
 }
 
 function getWeekLabel() {

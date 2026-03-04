@@ -11,6 +11,10 @@ const STATUS_COLORS = {
 const SCHOOL_DAYS = ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
 const DAY_JS_MAP = { 0: 'Minggu', 1: 'Senin', 2: 'Selasa', 3: 'Rabu', 4: 'Kamis', 5: 'Jumat', 6: 'Sabtu' };
 
+function toLocalDateStr(d) {
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 function isSchoolDay(date) {
     const d = new Date(date + 'T00:00:00');
     const dayName = DAY_JS_MAP[d.getDay()];
@@ -22,7 +26,7 @@ function getDatesInRange(startDate, endDate) {
     const current = new Date(startDate + 'T00:00:00');
     const end = new Date(endDate + 'T00:00:00');
     while (current <= end) {
-        const dateStr = current.toISOString().slice(0, 10);
+        const dateStr = toLocalDateStr(current);
         if (isSchoolDay(dateStr)) dates.push(dateStr);
         current.setDate(current.getDate() + 1);
     }
