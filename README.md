@@ -1,6 +1,6 @@
-# 🏫 Sistem Jadwal Sekolah
+# 🏫 Sistem Jadwal & Presensi Sekolah
 
-Aplikasi web untuk mengelola jadwal pelajaran sekolah secara lengkap — mulai dari data guru, mata pelajaran, kelas, hingga penyusunan jadwal dengan fitur drag & drop.
+Aplikasi web untuk mengelola jadwal pelajaran dan presensi sekolah secara lengkap — mulai dari data guru, mata pelajaran, kelas, siswa, hingga penyusunan jadwal dengan fitur drag & drop serta pencatatan kehadiran harian.
 
 ![Vite](https://img.shields.io/badge/Vite-7.x-646CFF?logo=vite&logoColor=white)
 ![JavaScript](https://img.shields.io/badge/JavaScript-ES2020-F7DF1E?logo=javascript&logoColor=black)
@@ -16,6 +16,7 @@ Aplikasi web untuk mengelola jadwal pelajaran sekolah secara lengkap — mulai d
 - **Mata Pelajaran** — Dengan 4 tipe: Pelajaran, Ekskul, Keagamaan, Upacara/Kegiatan
 - **Kelas** — Daftar kelas yang akan dijadwalkan
 - **Guru** — Data guru beserta mata pelajaran yang diampu
+- **Siswa** — Data siswa lengkap (NISN, nama, jenis kelamin, kelas) dengan import/export Excel
 
 ### ⏰ Profil Jam KBM
 - Buat profil jam KBM berbeda untuk setiap hari (misal: Jumat lebih pendek)
@@ -29,11 +30,42 @@ Aplikasi web untuk mengelola jadwal pelajaran sekolah secara lengkap — mulai d
 - Tampilan jadwal per kelas dengan tab switching
 - Warna entry jadwal berbeda sesuai tipe (ungu=pelajaran, hijau=ekskul, biru=keagamaan, orange=upacara)
 
-### 📥 Ekspor ke Excel
-- Ekspor jadwal ke file `.xlsx` dengan format profesional
-- Kop sekolah otomatis (nama, alamat, NPSN)
-- Tanda tangan Kepala Sekolah & Wakasek Kurikulum
-- Satu sheet per kelas
+### ✅ Presensi Guru
+- Dashboard presensi guru harian
+- Rekap statistik kehadiran guru
+
+### 📝 Presensi Siswa
+- Input presensi harian oleh guru piket
+- Tampilan **list view** dengan tombol status cepat (**H** / **S** / **I** / **A**) di samping nama siswa
+- Tombol **"Tandai Semua Hadir"** untuk efisiensi
+- Kolom keterangan otomatis muncul untuk status Sakit/Izin
+- Filter presensi per kelas dan tanggal
+
+### 📊 Laporan Kehadiran Siswa
+- **Filter Bulan & Tahun** — semua statistik mengikuti rentang waktu terpilih
+- **6 Stat Cards** — Total Siswa, Hari Efektif, Rata-rata Kehadiran (%), Total Hadir, Sakit+Izin, Total Alfa
+- **Rekap Per Kelas** — tabel persentase kehadiran per kelas, diurutkan dari terendah
+- **Rekap Individu** — detail per siswa dengan filter kelas dan pencarian nama
+- **Tabel Peringatan** — siswa dengan Alfa ≥ 3 atau kehadiran < 80% (untuk tindak lanjut Guru BK)
+- **Ekspor Excel komprehensif**:
+  - Sheet Ringkasan Sekolah (statistik + tabel per kelas)
+  - Sheet Per Kelas (matriks H/S/I/A tanggal 1-31 dengan kop sekolah)
+  - Sheet Peringatan (daftar siswa bermasalah)
+
+### 📥 Import & Ekspor Excel
+- **Import data** guru, mata pelajaran, jadwal, dan siswa dari file Excel
+- Template Excel otomatis berisi panduan pengisian dan data referensi
+- **Ekspor jadwal** ke `.xlsx` dengan kop sekolah dan tanda tangan
+- **Ekspor laporan presensi** ke `.xlsx` dengan multi-sheet
+
+### 🔄 Manajemen Tahun Ajaran
+- Tombol **"Kosongkan Data Siswa"** untuk reset data saat pergantian tahun ajaran baru
+- Konfirmasi ganda (ketik RESET) untuk keamanan
+- Setelah reset, import ulang data siswa baru dari Excel
+
+### 💾 Backup & Restore
+- Backup seluruh data ke file JSON
+- Restore data dari file backup
 
 ### 🌗 Light/Dark Mode
 - Toggle tema terang/gelap di pojok kiri bawah sidebar
@@ -53,7 +85,7 @@ Aplikasi web untuk mengelola jadwal pelajaran sekolah secara lengkap — mulai d
 | [Vite](https://vitejs.dev/) | 7.x | Build tool & dev server |
 | Vanilla JS | ES2020+ | Logika aplikasi |
 | CSS3 | - | Styling dengan CSS Variables |
-| [ExcelJS](https://github.com/exceljs/exceljs) | 4.x | Ekspor ke Excel |
+| [ExcelJS](https://github.com/exceljs/exceljs) | 4.x | Import & Ekspor Excel |
 | [FileSaver.js](https://github.com/eligrey/FileSaver.js) | 2.x | Download file |
 | localStorage | - | Penyimpanan data |
 
@@ -224,16 +256,22 @@ Sistem-Jadwal/
 │   │   ├── modal.js        # Modal dialog component
 │   │   └── toast.js        # Toast notification component
 │   ├── pages/
-│   │   ├── dashboard.js    # Dashboard & stats
+│   │   ├── dashboard.js    # Presensi guru & stats
 │   │   ├── school.js       # Identitas sekolah
 │   │   ├── semester.js     # Semester management
 │   │   ├── subjects.js     # Mata pelajaran + tipe
 │   │   ├── classes.js      # Kelas
 │   │   ├── teachers.js     # Guru
+│   │   ├── students.js     # Data siswa (CRUD + import Excel)
 │   │   ├── kbm.js          # Profil jam KBM
-│   │   └── schedule.js     # Jadwal pelajaran (drag & drop)
+│   │   ├── schedule.js     # Jadwal pelajaran (drag & drop)
+│   │   ├── studentAttendance.js  # Input presensi harian siswa
+│   │   ├── studentReports.js     # Laporan kehadiran komprehensif
+│   │   ├── reports.js      # Laporan presensi guru
+│   │   └── backup.js       # Backup & restore
 │   └── utils/
-│       └── excelExport.js  # Ekspor jadwal ke Excel
+│       ├── excelExport.js  # Ekspor jadwal & laporan ke Excel
+│       └── excelImport.js  # Import data dari Excel
 └── dist/                   # Hasil build (production)
 ```
 
