@@ -288,11 +288,262 @@ export async function exportScheduleToExcel() {
         nipWakasek.alignment = { horizontal: 'center' };
     }
 
-    // Generate and download
     const buffer = await workbook.xlsx.writeBuffer();
     const schoolName = (school.name || 'Sekolah').replace(/[^a-zA-Z0-9 ]/g, '').replace(/\s+/g, '_');
     const semName = (activeSemester.name || 'Semester').replace(/[^a-zA-Z0-9 ]/g, '').replace(/\s+/g, '_');
     const filename = `Jadwal_${schoolName}_${semName}.xlsx`;
 
     saveAs(new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), filename);
+}
+
+export async function generateStudentAttendanceReport(month, year) {
+    const school = DataStore.getSchool();
+    const classes = DataStore.getClasses();
+    const students = DataStore.getStudents();
+    const allAttendance = DataStore.getStudentAttendance();
+
+    const months = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+    const monthName = months[month] || 'Unknown';
+
+    // Filter attendance to selected month/year
+    const attendance = allAttendance.filter(a => {
+        const [y, m] = a.date.split('-').map(Number);
+        return y === year && (m - 1) === month;
+    });
+
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = 'Sistem Jadwal Sekolah';
+
+    if (classes.length === 0 || students.length === 0) {
+        alert("Belum ada data kelas atau siswa.");
+        return;
+    }
+
+    // ---- Sheet 1: Ringkasan Sekolah ----
+    const wsSummary = workbook.addWorksheet('Ringkasan', {
+        pageSetup: { orientation: 'landscape', fitToPage: true, fitToWidth: 1, fitToHeight: 0 }
+    });
+    wsSummary.columns = [
+        { width: 25 }, { width: 15 }, { width: 10 }, { width: 10 }, { width: 10 }, { width: 10 }, { width: 15 }
+    ];
+
+    let sRow = 1;
+    wsSummary.mergeCells(sRow, 1, sRow, 7);
+    const titleCell = wsSummary.getCell(sRow, 1);
+    titleCell.value = 'REKAPITULASI KEHADIRAN SISWA';
+    titleCell.font = { bold: true, size: 14 };
+    titleCell.alignment = { horizontal: 'center' };
+    sRow++;
+    wsSummary.mergeCells(sRow, 1, sRow, 7);
+    const schoolCell = wsSummary.getCell(sRow, 1);
+    schoolCell.value = `${school.name || 'Sekolah'} — ${monthName} ${year}`;
+    schoolCell.font = { size: 12 };
+    schoolCell.alignment = { horizontal: 'center' };
+    sRow += 2;
+
+    let totalH = 0, totalS = 0, totalI = 0, totalA = 0;
+    attendance.forEach(a => {
+        if (a.status === 'H') totalH++;
+        if (a.status === 'S') totalS++;
+        if (a.status === 'I') totalI++;
+        if (a.status === 'A') totalA++;
+    });
+    const totalRecords = totalH + totalS + totalI + totalA;
+    const avgPct = totalRecords > 0 ? Math.round((totalH / totalRecords) * 1000) / 10 : 0;
+
+    wsSummary.getCell(sRow, 1).value = 'Total Siswa:';
+    wsSummary.getCell(sRow, 2).value = students.length;
+    wsSummary.getCell(sRow, 1).font = { bold: true };
+    sRow++;
+    wsSummary.getCell(sRow, 1).value = 'Rata-rata Kehadiran:';
+    wsSummary.getCell(sRow, 2).value = avgPct + '%';
+    wsSummary.getCell(sRow, 1).font = { bold: true };
+    sRow += 2;
+
+    const classHeaders = ['Kelas', 'Jml Siswa', 'Hadir', 'Sakit', 'Izin', 'Alfa', '% Kehadiran'];
+    classHeaders.forEach((h, idx) => {
+        const cell = wsSummary.getCell(sRow, idx + 1);
+        cell.value = h;
+        cell.font = { bold: true, color: { argb: 'FFFFFF' } };
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: '2F5496' } };
+        cell.alignment = { horizontal: 'center' };
+        cell.border = { top: { style: 'thin' }, bottom: { style: 'thin' }, left: { style: 'thin' }, right: { style: 'thin' } };
+    });
+    sRow++;
+
+    for (const cls of classes) {
+        const classStudents = students.filter(s => s.classId === cls.id);
+        if (classStudents.length === 0) continue;
+        const classStudentIds = new Set(classStudents.map(s => s.id));
+        const classAtt = attendance.filter(a => classStudentIds.has(a.studentId));
+        let ch = 0, cs = 0, ci = 0, ca = 0;
+        classAtt.forEach(a => {
+            if (a.status === 'H') ch++;
+            if (a.status === 'S') cs++;
+            if (a.status === 'I') ci++;
+            if (a.status === 'A') ca++;
+        });
+        const cTotal = ch + cs + ci + ca;
+        const cPct = cTotal > 0 ? Math.round((ch / cTotal) * 1000) / 10 : 0;
+        wsSummary.getCell(sRow, 1).value = cls.name;
+        wsSummary.getCell(sRow, 2).value = classStudents.length;
+        wsSummary.getCell(sRow, 3).value = ch;
+        wsSummary.getCell(sRow, 4).value = cs;
+        wsSummary.getCell(sRow, 5).value = ci;
+        wsSummary.getCell(sRow, 6).value = ca;
+        wsSummary.getCell(sRow, 7).value = cPct + '%';
+        for (let c = 1; c <= 7; c++) {
+            wsSummary.getCell(sRow, c).alignment = { horizontal: 'center' };
+            wsSummary.getCell(sRow, c).border = { top: { style: 'thin' }, bottom: { style: 'thin' }, left: { style: 'thin' }, right: { style: 'thin' } };
+        }
+        wsSummary.getCell(sRow, 1).alignment = { horizontal: 'left' };
+        sRow++;
+    }
+
+    // ---- Sheet 2-N: Rekap Per Kelas (Matriks) ----
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+    for (const cls of classes) {
+        const classStudents = students.filter(s => s.classId === cls.id).sort((a, b) => a.name.localeCompare(b.name));
+        if (classStudents.length === 0) continue;
+
+        const ws = workbook.addWorksheet(`Kelas ${cls.name}`, {
+            pageSetup: { orientation: 'landscape', fitToPage: true, fitToWidth: 1, fitToHeight: 0 }
+        });
+        const totalCols = 4 + daysInMonth + 4;
+        const cols = [{ width: 5 }, { width: 30 }, { width: 15 }, { width: 5 }];
+        for (let i = 1; i <= daysInMonth; i++) cols.push({ width: 3.5 });
+        cols.push({ width: 5 }, { width: 5 }, { width: 5 }, { width: 5 });
+        ws.columns = cols;
+
+        let row = 1;
+        ws.mergeCells(row, 1, row, totalCols);
+        ws.getCell(row, 1).value = school.name || 'Sekolah';
+        ws.getCell(row, 1).font = { bold: true, size: 12 };
+        ws.getCell(row, 1).alignment = { horizontal: 'center' };
+        row++;
+        ws.mergeCells(row, 1, row, totalCols);
+        ws.getCell(row, 1).value = `REKAPITULASI PRESENSI SISWA — KELAS ${cls.name} — ${monthName} ${year}`;
+        ws.getCell(row, 1).font = { bold: true, size: 11 };
+        ws.getCell(row, 1).alignment = { horizontal: 'center' };
+        row += 2;
+
+        ws.getCell(row, 1).value = 'No';
+        ws.getCell(row, 2).value = 'Nama Lengkap';
+        ws.getCell(row, 3).value = 'NISN';
+        ws.getCell(row, 4).value = 'L/P';
+        for (let i = 1; i <= daysInMonth; i++) ws.getCell(row, 4 + i).value = i;
+        const rekapStart = 4 + daysInMonth + 1;
+        ws.getCell(row, rekapStart).value = 'H';
+        ws.getCell(row, rekapStart + 1).value = 'S';
+        ws.getCell(row, rekapStart + 2).value = 'I';
+        ws.getCell(row, rekapStart + 3).value = 'A';
+        for (let c = 1; c <= totalCols; c++) {
+            const cell = ws.getCell(row, c);
+            cell.font = { bold: true, color: { argb: 'FFFFFF' } };
+            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: '2F5496' } };
+            cell.alignment = { horizontal: 'center', vertical: 'middle' };
+            cell.border = { top: { style: 'thin' }, bottom: { style: 'thin' }, left: { style: 'thin' }, right: { style: 'thin' } };
+        }
+        row++;
+
+        classStudents.forEach((student, index) => {
+            ws.getCell(row, 1).value = index + 1;
+            ws.getCell(row, 2).value = student.name;
+            ws.getCell(row, 3).value = student.nisn || '-';
+            ws.getCell(row, 4).value = student.gender || '-';
+            let h = 0, s = 0, iStat = 0, a = 0;
+            const studentAtt = attendance.filter(att => att.studentId === student.id);
+            for (let d = 1; d <= daysInMonth; d++) {
+                const dayStr = d.toString().padStart(2, '0');
+                const monthStr = (month + 1).toString().padStart(2, '0');
+                const dateStr = `${year}-${monthStr}-${dayStr}`;
+                const record = studentAtt.find(att => att.date === dateStr);
+                let statusVal = '';
+                if (record) {
+                    statusVal = record.status;
+                    if (statusVal === 'H') h++;
+                    if (statusVal === 'S') s++;
+                    if (statusVal === 'I') iStat++;
+                    if (statusVal === 'A') a++;
+                }
+                ws.getCell(row, 4 + d).value = statusVal;
+                ws.getCell(row, 4 + d).alignment = { horizontal: 'center' };
+            }
+            ws.getCell(row, rekapStart).value = h;
+            ws.getCell(row, rekapStart + 1).value = s;
+            ws.getCell(row, rekapStart + 2).value = iStat;
+            ws.getCell(row, rekapStart + 3).value = a;
+            for (let c = 1; c <= totalCols; c++) {
+                ws.getCell(row, c).border = { top: { style: 'thin' }, bottom: { style: 'thin' }, left: { style: 'thin' }, right: { style: 'thin' } };
+            }
+            row++;
+        });
+    }
+
+    // ---- Sheet Peringatan ----
+    const wsWarn = workbook.addWorksheet('Peringatan', {
+        pageSetup: { orientation: 'portrait', fitToPage: true, fitToWidth: 1, fitToHeight: 0 }
+    });
+    wsWarn.columns = [{ width: 5 }, { width: 30 }, { width: 15 }, { width: 10 }, { width: 12 }, { width: 15 }];
+    let wRow = 1;
+    wsWarn.mergeCells(wRow, 1, wRow, 6);
+    wsWarn.getCell(wRow, 1).value = `DAFTAR SISWA BERMASALAH — ${monthName} ${year}`;
+    wsWarn.getCell(wRow, 1).font = { bold: true, size: 13 };
+    wsWarn.getCell(wRow, 1).alignment = { horizontal: 'center' };
+    wRow += 2;
+    const warnHeaders = ['No', 'Nama Siswa', 'Kelas', 'Total Alfa', 'Izin/Sakit', '% Kehadiran'];
+    warnHeaders.forEach((h, idx) => {
+        const cell = wsWarn.getCell(wRow, idx + 1);
+        cell.value = h;
+        cell.font = { bold: true, color: { argb: 'FFFFFF' } };
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'C0392B' } };
+        cell.alignment = { horizontal: 'center' };
+        cell.border = { top: { style: 'thin' }, bottom: { style: 'thin' }, left: { style: 'thin' }, right: { style: 'thin' } };
+    });
+    wRow++;
+
+    const classMap = {};
+    classes.forEach(c => { classMap[c.id] = c.name; });
+    const perStudent = {};
+    students.forEach(s => {
+        perStudent[s.id] = { name: s.name, className: classMap[s.classId] || '-', h: 0, s: 0, i: 0, a: 0 };
+    });
+    attendance.forEach(a => {
+        if (perStudent[a.studentId]) {
+            if (a.status === 'H') perStudent[a.studentId].h++;
+            if (a.status === 'S') perStudent[a.studentId].s++;
+            if (a.status === 'I') perStudent[a.studentId].i++;
+            if (a.status === 'A') perStudent[a.studentId].a++;
+        }
+    });
+    const warnings = Object.values(perStudent)
+        .map(ps => { const total = ps.h + ps.s + ps.i + ps.a; ps.pct = total > 0 ? Math.round((ps.h / total) * 1000) / 10 : 0; ps.total = total; return ps; })
+        .filter(ps => ps.a >= 3 || (ps.total > 0 && ps.pct < 80))
+        .sort((a, b) => b.a - a.a);
+
+    if (warnings.length > 0) {
+        warnings.forEach((s, idx) => {
+            wsWarn.getCell(wRow, 1).value = idx + 1;
+            wsWarn.getCell(wRow, 2).value = s.name;
+            wsWarn.getCell(wRow, 3).value = s.className;
+            wsWarn.getCell(wRow, 4).value = s.a;
+            wsWarn.getCell(wRow, 5).value = s.s + s.i;
+            wsWarn.getCell(wRow, 6).value = s.pct + '%';
+            for (let c = 1; c <= 6; c++) {
+                wsWarn.getCell(wRow, c).alignment = { horizontal: 'center' };
+                wsWarn.getCell(wRow, c).border = { top: { style: 'thin' }, bottom: { style: 'thin' }, left: { style: 'thin' }, right: { style: 'thin' } };
+            }
+            wsWarn.getCell(wRow, 2).alignment = { horizontal: 'left' };
+            wRow++;
+        });
+    } else {
+        wsWarn.mergeCells(wRow, 1, wRow, 6);
+        wsWarn.getCell(wRow, 1).value = 'Tidak ada siswa bermasalah pada bulan ini.';
+        wsWarn.getCell(wRow, 1).alignment = { horizontal: 'center' };
+    }
+
+    const buffer = await workbook.xlsx.writeBuffer();
+    const schoolName = (school.name || 'Sekolah').replace(/[^a-zA-Z0-9 ]/g, '').replace(/\s+/g, '_');
+    saveAs(new Blob([buffer]), `Laporan_Presensi_Siswa_${schoolName}_${monthName}_${year}.xlsx`);
 }

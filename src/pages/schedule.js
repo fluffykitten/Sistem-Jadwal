@@ -2,7 +2,9 @@
 import DataStore from '../dataStore.js';
 import { showToast } from '../components/toast.js';
 import { exportScheduleToExcel } from '../utils/excelExport.js';
+import { downloadScheduleTemplate, importScheduleFromExcel } from '../utils/excelImport.js';
 import { getTeacherColorMap } from '../utils/teacherColors.js';
+import { openModal } from '../components/modal.js';
 
 const DAYS = ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
 
@@ -199,7 +201,10 @@ export function renderSchedule() {
           <h2><span class="header-icon">📋</span> Jadwal Pelajaran</h2>
           <p class="page-subtitle">${activeSemester.name} — ${activeSemester.year}</p>
         </div>
-        <button class="btn btn-success" id="exportExcelBtn">📥 Ekspor ke Excel</button>
+        <div style="display: flex; gap: 8px;">
+          <button class="btn btn-secondary" id="importScheduleBtn">📥 Import Excel</button>
+          <button class="btn btn-success" id="exportExcelBtn">📥 Ekspor ke Excel</button>
+        </div>
       </div>
 
       <div class="schedule-builder">
@@ -276,6 +281,82 @@ export function initSchedule(refreshPage) {
   // Export Excel
   document.getElementById('exportExcelBtn')?.addEventListener('click', () => {
     exportScheduleToExcel();
+  });
+
+  // Import Excel
+  document.getElementById('importScheduleBtn')?.addEventListener('click', () => {
+    const modalHtml = `
+      <div style="display: flex; flex-direction: column; gap: 16px;">
+        <div class="rpt-no-issues" style="background: rgba(234, 179, 8, 0.1); border-color: rgba(234, 179, 8, 0.2); padding: 12px; text-align: left;">
+          <h4 style="color: #ca8a04; margin: 0 0 8px 0; font-size: 0.9rem;">⚠️ Perhatian Sebelum Import</h4>
+          <p style="font-size: 0.8rem; margin: 0; color: var(--text-secondary);">
+            Sistem sangat ketat terhadap salah ketik (typo). Pastikan <strong>Nama Kelas</strong>, <strong>Kode Mapel</strong>, dan <strong>Nama Guru</strong> di file Excel <u>sama persis</u> dengan yang ada di menu Master Data.
+          </p>
+        </div>
+        <button class="btn btn-secondary" id="downloadSchedTplBtn" style="width: fit-content;">📥 Unduh Template Khusus Jadwal</button>
+        <div class="form-group" style="margin-top: 8px;">
+          <label>Unggah File (.xlsx)</label>
+          <input type="file" id="schedExcelFile" accept=".xlsx" class="form-control" />
+        </div>
+        <div id="importSchedStatus" style="font-size: 0.85rem; padding: 10px; border-radius: 4px; display: none; max-height: 200px; overflow-y: auto;"></div>
+        <div class="form-actions" style="margin-top: 8px;">
+          <button class="btn btn-primary" id="processImportSchedBtn" style="width: 100%;">Proses Import Jadwal</button>
+        </div>
+      </div>
+    `;
+
+    const { modal, closeModal: close } = openModal('Import Jadwal Pelajaran', modalHtml);
+
+    modal.querySelector('#downloadSchedTplBtn').addEventListener('click', () => {
+      downloadScheduleTemplate();
+      showToast('Template berhasil diunduh', 'info');
+    });
+
+    modal.querySelector('#processImportSchedBtn').addEventListener('click', async () => {
+      const fileInput = modal.querySelector('#schedExcelFile');
+      if (!fileInput.files || fileInput.files.length === 0) {
+        showToast('Pilih file Excel terlebih dahulu', 'warning');
+        return;
+      }
+
+      const file = fileInput.files[0];
+      const statusDiv = modal.querySelector('#importSchedStatus');
+      statusDiv.style.display = 'block';
+      statusDiv.style.background = 'var(--bg-tertiary)';
+      statusDiv.style.color = 'var(--text-primary)';
+      statusDiv.innerHTML = '🕒 Memproses dan memvalidasi file...';
+
+      try {
+        const buffer = await file.arrayBuffer();
+        const result = await importScheduleFromExcel(buffer);
+
+        if (result.success) {
+          let msg = `✅ Berhasil mengimpor ${result.count} slot jadwal.`;
+          if (result.errors && result.errors.length > 0) {
+            msg += `<br><br><b>${result.errors.length} Baris gagal diproses (Cek Typo):</b><br><ul style="padding-left:16px;margin:4px 0; color: #ef4444;">${result.errors.map(e => `<li>${e}</li>`).join('')}</ul>`;
+            statusDiv.style.background = 'rgba(234, 179, 8, 0.1)';
+            statusDiv.style.color = 'inherit';
+          } else {
+            statusDiv.style.background = 'rgba(34, 197, 94, 0.1)';
+            statusDiv.style.color = '#22c55e';
+          }
+          statusDiv.innerHTML = msg;
+
+          if (result.count > 0) {
+            showToast(`${result.count} jadwal berhasil ditambahkan!`, 'success');
+            refreshPage();
+          }
+        } else {
+          statusDiv.style.background = 'rgba(239, 68, 68, 0.1)';
+          statusDiv.style.color = '#ef4444';
+          statusDiv.innerHTML = `❌ Gagal memproses file: ${result.error}`;
+        }
+      } catch (err) {
+        statusDiv.style.background = 'rgba(239, 68, 68, 0.1)';
+        statusDiv.style.color = '#ef4444';
+        statusDiv.innerHTML = `❌ Gagal: ${err.message}`;
+      }
+    });
   });
 }
 

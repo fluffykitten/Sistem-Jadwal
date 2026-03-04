@@ -19,7 +19,9 @@ const defaultData = {
   teachers: [],
   kbmProfiles: [],
   schedules: [],
-  attendance: []
+  attendance: [],
+  students: [],
+  studentAttendance: []
 };
 
 function generateId() {
@@ -362,6 +364,68 @@ const DataStore = {
       teachers: (_data.teachers || []).length,
       schedules: (_data.schedules || []).length
     };
+  },
+
+  // Utility
+  clearAllData() {
+    _data = { ...defaultData };
+    saveData(_data);
+  },
+
+  // --- Student Attendance Module ---
+
+  getStudents() {
+    return _data.students || [];
+  },
+  addStudent(student) {
+    if (!_data.students) _data.students = [];
+    const newStudent = { id: generateId(), ...student };
+    _data.students.push(newStudent);
+    saveData(_data);
+  },
+  updateStudent(id, updates) {
+    if (!_data.students) return;
+    const idx = _data.students.findIndex(s => s.id === id);
+    if (idx !== -1) {
+      _data.students[idx] = { ..._data.students[idx], ...updates };
+      saveData(_data);
+    }
+  },
+  deleteStudent(id) {
+    if (!_data.students) return;
+    _data.students = _data.students.filter(s => s.id !== id);
+    // Delete their attendance too
+    if (_data.studentAttendance) {
+      _data.studentAttendance = _data.studentAttendance.filter(a => a.studentId !== id);
+    }
+    saveData(_data);
+  },
+  clearStudents() {
+    _data.students = [];
+    _data.studentAttendance = [];
+    saveData(_data);
+  },
+
+  getStudentAttendance() {
+    return _data.studentAttendance || [];
+  },
+  saveStudentAttendance(records) {
+    // records: array of { studentId, date, status, notes }
+    if (!_data.studentAttendance) _data.studentAttendance = [];
+
+    records.forEach(record => {
+      // Check if record exists for this student on this date
+      const idx = _data.studentAttendance.findIndex(a => a.studentId === record.studentId && a.date === record.date);
+      if (idx !== -1) {
+        // Update
+        _data.studentAttendance[idx] = { ..._data.studentAttendance[idx], ...record };
+      } else {
+        // Create
+        _data.studentAttendance.push({ id: generateId(), ...record });
+      }
+    });
+
+    saveData(_data);
   },
 
   // Utility

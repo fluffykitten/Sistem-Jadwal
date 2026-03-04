@@ -724,3 +724,245 @@ export async function exportPerTeacherReport(teacherId, startDate, endDate) {
     const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
     saveAs(blob, `Presensi_${teacher.name.replace(/\s+/g, '_')}_${startDate}_${endDate}.xlsx`);
 }
+
+// ========== 4. Ranking & Analysis Report ==========
+export async function exportRankingReport(startDate, endDate) {
+    // Import analytics dynamically to avoid circular deps
+    const { computeTeacherStats, computeOverallStats, computeLatecomerRanking, computeAbsenteeRanking } = await import('./attendanceAnalytics.js');
+
+    const school = DataStore.getSchool();
+    const teacherStats = computeTeacherStats(startDate, endDate);
+    const overall = computeOverallStats(teacherStats);
+
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = 'Sistem Jadwal Sekolah';
+
+    const headerStyle = { name: 'Arial', size: 9, bold: true, color: { argb: 'FFFFFF' } };
+    const headerFill = { type: 'pattern', pattern: 'solid', fgColor: { argb: '2F5496' } };
+    const thinBorder = { style: 'thin', color: { argb: '8DB4E2' } };
+    const allBorders = { top: thinBorder, bottom: thinBorder, left: thinBorder, right: thinBorder };
+    const evenFill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'F0F4FA' } };
+
+    // ===== Sheet 1: Ranking Kehadiran =====
+    const totalCols1 = 10;
+    const ws1 = workbook.addWorksheet('Ranking Kehadiran', {
+        pageSetup: { paperSize: 9, orientation: 'landscape', fitToPage: true, fitToWidth: 1, fitToHeight: 0 }
+    });
+    ws1.columns = [
+        { width: 4 }, { width: 28 }, { width: 8 }, { width: 6 }, { width: 6 },
+        { width: 6 }, { width: 6 }, { width: 6 }, { width: 8 }, { width: 14 }
+    ];
+
+    let row1 = addKop(ws1, school, totalCols1);
+
+    ws1.mergeCells(row1, 1, row1, totalCols1);
+    ws1.getCell(row1, 1).value = 'RANKING KEHADIRAN GURU';
+    ws1.getCell(row1, 1).font = { name: 'Arial', size: 13, bold: true };
+    ws1.getCell(row1, 1).alignment = { horizontal: 'center' };
+    ws1.getRow(row1).height = 22;
+    row1++;
+
+    ws1.mergeCells(row1, 1, row1, totalCols1);
+    ws1.getCell(row1, 1).value = `Periode: ${formatDateIndo(startDate)} — ${formatDateIndo(endDate)}`;
+    ws1.getCell(row1, 1).font = { name: 'Arial', size: 9, color: { argb: '555555' } };
+    ws1.getCell(row1, 1).alignment = { horizontal: 'center' };
+    row1++;
+
+    ws1.mergeCells(row1, 1, row1, totalCols1);
+    ws1.getCell(row1, 1).value = `Rata-rata Kehadiran: ${overall.avgPercentage}%  |  Total Guru: ${overall.totalTeachers}  |  Hari Sekolah: ${overall.totalDays}`;
+    ws1.getCell(row1, 1).font = { name: 'Arial', size: 9, color: { argb: '555555' } };
+    ws1.getCell(row1, 1).alignment = { horizontal: 'center' };
+    row1 += 2;
+
+    const headers1 = ['No', 'Nama Guru', 'Hari', 'H', 'T', 'S', 'I', 'A', '%', 'Status'];
+    headers1.forEach((h, i) => {
+        const cell = ws1.getCell(row1, i + 1);
+        cell.value = h;
+        cell.font = headerStyle;
+        cell.fill = headerFill;
+        cell.alignment = { horizontal: 'center', vertical: 'middle' };
+        cell.border = allBorders;
+    });
+    ws1.getCell(row1, 2).alignment = { horizontal: 'left', vertical: 'middle' };
+    row1++;
+
+    const sorted = [...teacherStats].sort((a, b) => b.percentage - a.percentage);
+    sorted.forEach((ts, idx) => {
+        const isEven = idx % 2 === 1;
+        ws1.getCell(row1, 1).value = idx + 1;
+        ws1.getCell(row1, 2).value = ts.teacher.name;
+        ws1.getCell(row1, 3).value = ts.recordedDays;
+        ws1.getCell(row1, 4).value = ts.counts.H;
+        ws1.getCell(row1, 5).value = ts.counts.T;
+        ws1.getCell(row1, 6).value = ts.counts.S;
+        ws1.getCell(row1, 7).value = ts.counts.I;
+        ws1.getCell(row1, 8).value = ts.counts.A;
+        ws1.getCell(row1, 9).value = `${ts.percentage}%`;
+
+        const statusText = ts.percentage >= 90 ? 'Baik' : ts.percentage >= 75 ? 'Cukup' : 'Perlu Perhatian';
+        ws1.getCell(row1, 10).value = statusText;
+
+        const statusColor = ts.percentage >= 90 ? '22C55E' : ts.percentage >= 75 ? 'CA8A04' : 'EF4444';
+        ws1.getCell(row1, 10).font = { name: 'Arial', size: 9, bold: true, color: { argb: statusColor } };
+
+        for (let c = 1; c <= totalCols1; c++) {
+            const cell = ws1.getCell(row1, c);
+            cell.border = allBorders;
+            if (!cell.font || !cell.font.color) cell.font = { name: 'Arial', size: 9 };
+            cell.alignment = { horizontal: c === 2 ? 'left' : 'center', vertical: 'middle' };
+            if (isEven) cell.fill = evenFill;
+        }
+        row1++;
+    });
+
+    row1++;
+    ws1.mergeCells(row1, 1, row1, totalCols1);
+    ws1.getCell(row1, 1).value = 'Status: Baik (≥90%), Cukup (75-89%), Perlu Perhatian (<75%)';
+    ws1.getCell(row1, 1).font = { name: 'Arial', size: 8, italic: true, color: { argb: '666666' } };
+    row1++;
+
+    addSignature(ws1, school, totalCols1, row1);
+
+    // ===== Sheet 2: Detail Keterlambatan =====
+    const latecomers = computeLatecomerRanking(teacherStats);
+    const totalCols2 = 4;
+    const ws2 = workbook.addWorksheet('Detail Keterlambatan', {
+        pageSetup: { paperSize: 9, orientation: 'portrait', fitToPage: true, fitToWidth: 1, fitToHeight: 0 }
+    });
+    ws2.columns = [{ width: 4 }, { width: 28 }, { width: 10 }, { width: 50 }];
+
+    let row2 = addKop(ws2, school, totalCols2);
+
+    ws2.mergeCells(row2, 1, row2, totalCols2);
+    ws2.getCell(row2, 1).value = 'DETAIL KETERLAMBATAN GURU';
+    ws2.getCell(row2, 1).font = { name: 'Arial', size: 13, bold: true };
+    ws2.getCell(row2, 1).alignment = { horizontal: 'center' };
+    row2++;
+
+    ws2.mergeCells(row2, 1, row2, totalCols2);
+    ws2.getCell(row2, 1).value = `Periode: ${formatDateIndo(startDate)} — ${formatDateIndo(endDate)}`;
+    ws2.getCell(row2, 1).font = { name: 'Arial', size: 9, color: { argb: '555555' } };
+    ws2.getCell(row2, 1).alignment = { horizontal: 'center' };
+    row2 += 2;
+
+    const headers2 = ['No', 'Nama Guru', 'Jumlah', 'Tanggal Terlambat'];
+    headers2.forEach((h, i) => {
+        const cell = ws2.getCell(row2, i + 1);
+        cell.value = h;
+        cell.font = headerStyle;
+        cell.fill = headerFill;
+        cell.alignment = { horizontal: 'center', vertical: 'middle' };
+        cell.border = allBorders;
+    });
+    ws2.getCell(row2, 4).alignment = { horizontal: 'left', vertical: 'middle' };
+    row2++;
+
+    if (latecomers.length === 0) {
+        ws2.mergeCells(row2, 1, row2, totalCols2);
+        ws2.getCell(row2, 1).value = 'Tidak ada guru yang terlambat pada periode ini. 🎉';
+        ws2.getCell(row2, 1).font = { name: 'Arial', size: 10, italic: true };
+        ws2.getCell(row2, 1).alignment = { horizontal: 'center' };
+        row2++;
+    } else {
+        latecomers.forEach((ts, idx) => {
+            const isEven = idx % 2 === 1;
+            ws2.getCell(row2, 1).value = idx + 1;
+            ws2.getCell(row2, 2).value = ts.teacher.name;
+            ws2.getCell(row2, 3).value = ts.counts.T;
+            ws2.getCell(row2, 4).value = ts.lateDates.map(d => formatDateIndo(d)).join(', ');
+
+            for (let c = 1; c <= totalCols2; c++) {
+                const cell = ws2.getCell(row2, c);
+                cell.border = allBorders;
+                cell.font = { name: 'Arial', size: 9 };
+                cell.alignment = { horizontal: c <= 3 ? 'center' : 'left', vertical: 'middle', wrapText: c === 4 };
+                if (isEven) cell.fill = evenFill;
+            }
+            row2++;
+        });
+    }
+
+    addSignature(ws2, school, totalCols2, row2 + 1);
+
+    // ===== Sheet 3: Detail Ketidakhadiran =====
+    const absentees = computeAbsenteeRanking(teacherStats);
+    const totalCols3 = 7;
+    const ws3 = workbook.addWorksheet('Detail Ketidakhadiran', {
+        pageSetup: { paperSize: 9, orientation: 'landscape', fitToPage: true, fitToWidth: 1, fitToHeight: 0 }
+    });
+    ws3.columns = [{ width: 4 }, { width: 28 }, { width: 8 }, { width: 6 }, { width: 6 }, { width: 6 }, { width: 12 }];
+
+    let row3 = addKop(ws3, school, totalCols3);
+
+    ws3.mergeCells(row3, 1, row3, totalCols3);
+    ws3.getCell(row3, 1).value = 'DETAIL KETIDAKHADIRAN GURU';
+    ws3.getCell(row3, 1).font = { name: 'Arial', size: 13, bold: true };
+    ws3.getCell(row3, 1).alignment = { horizontal: 'center' };
+    row3++;
+
+    ws3.mergeCells(row3, 1, row3, totalCols3);
+    ws3.getCell(row3, 1).value = `Periode: ${formatDateIndo(startDate)} — ${formatDateIndo(endDate)}`;
+    ws3.getCell(row3, 1).font = { name: 'Arial', size: 9, color: { argb: '555555' } };
+    ws3.getCell(row3, 1).alignment = { horizontal: 'center' };
+    row3 += 2;
+
+    const headers3 = ['No', 'Nama Guru', 'Total', 'S', 'I', 'A', 'Titip Tugas'];
+    headers3.forEach((h, i) => {
+        const cell = ws3.getCell(row3, i + 1);
+        cell.value = h;
+        cell.font = headerStyle;
+        cell.fill = headerFill;
+        cell.alignment = { horizontal: 'center', vertical: 'middle' };
+        cell.border = allBorders;
+    });
+    ws3.getCell(row3, 2).alignment = { horizontal: 'left', vertical: 'middle' };
+    row3++;
+
+    if (absentees.length === 0) {
+        ws3.mergeCells(row3, 1, row3, totalCols3);
+        ws3.getCell(row3, 1).value = 'Tidak ada guru yang tidak hadir pada periode ini. 🎉';
+        ws3.getCell(row3, 1).font = { name: 'Arial', size: 10, italic: true };
+        ws3.getCell(row3, 1).alignment = { horizontal: 'center' };
+        row3++;
+    } else {
+        absentees.forEach((ts, idx) => {
+            const isEven = idx % 2 === 1;
+            const totalAbsent = ts.counts.S + ts.counts.I + ts.counts.A;
+            ws3.getCell(row3, 1).value = idx + 1;
+            ws3.getCell(row3, 2).value = ts.teacher.name;
+            ws3.getCell(row3, 3).value = totalAbsent;
+            ws3.getCell(row3, 4).value = ts.counts.S;
+            ws3.getCell(row3, 5).value = ts.counts.I;
+            ws3.getCell(row3, 6).value = ts.counts.A;
+            ws3.getCell(row3, 7).value = ts.taskDelegated > 0 ? `${ts.taskDelegated}× Ya` : '-';
+
+            for (let c = 1; c <= totalCols3; c++) {
+                const cell = ws3.getCell(row3, c);
+                cell.border = allBorders;
+                cell.font = { name: 'Arial', size: 9 };
+                cell.alignment = { horizontal: c === 2 ? 'left' : 'center', vertical: 'middle' };
+                if (isEven) cell.fill = evenFill;
+            }
+
+            // Color the status columns
+            ws3.getCell(row3, 4).font = { name: 'Arial', size: 9, color: { argb: 'F97316' } };
+            ws3.getCell(row3, 5).font = { name: 'Arial', size: 9, color: { argb: '3B82F6' } };
+            ws3.getCell(row3, 6).font = { name: 'Arial', size: 9, bold: true, color: { argb: 'EF4444' } };
+
+            row3++;
+        });
+    }
+
+    row3++;
+    ws3.mergeCells(row3, 1, row3, totalCols3);
+    ws3.getCell(row3, 1).value = 'Keterangan: S = Sakit, I = Izin, A = Alfa. Titip Tugas = guru menitipkan tugas saat tidak hadir.';
+    ws3.getCell(row3, 1).font = { name: 'Arial', size: 8, italic: true, color: { argb: '666666' } };
+    row3++;
+
+    addSignature(ws3, school, totalCols3, row3);
+
+    // Save
+    const buffer = await workbook.xlsx.writeBuffer();
+    const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    saveAs(blob, `Ranking_Kehadiran_${startDate}_${endDate}.xlsx`);
+}

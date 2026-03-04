@@ -2,6 +2,7 @@
 import DataStore from '../dataStore.js';
 import { openModal } from '../components/modal.js';
 import { showToast } from '../components/toast.js';
+import { downloadSubjectTemplate, importSubjectsFromExcel } from '../utils/excelImport.js';
 
 const SUBJECT_TYPES = [
   { value: 'pelajaran', label: 'Pelajaran', color: 'subject' },
@@ -42,7 +43,10 @@ export function renderSubjects() {
           <h2><span class="header-icon">📚</span> Mata Pelajaran</h2>
           <p class="page-subtitle">Kelola daftar mata pelajaran sekolah</p>
         </div>
-        <button class="btn btn-primary" id="addSubjectBtn">+ Tambah Mapel</button>
+        <div style="display: flex; gap: 8px;">
+          <button class="btn btn-secondary" id="importSubjectBtn">📥 Import Excel</button>
+          <button class="btn btn-primary" id="addSubjectBtn">+ Tambah Mapel</button>
+        </div>
       </div>
 
       <div class="card">
@@ -144,6 +148,79 @@ export function initSubjects(refreshPage) {
         DataStore.deleteSubject(btn.dataset.id);
         showToast('Mata pelajaran berhasil dihapus!', 'success');
         refreshPage();
+      }
+    });
+  });
+
+  // Import Excel logic
+  document.getElementById('importSubjectBtn')?.addEventListener('click', () => {
+    const modalHtml = `
+      <div style="display: flex; flex-direction: column; gap: 16px;">
+        <p style="font-size: 0.9rem; color: var(--text-secondary);">
+          Tambahkan data mata pelajaran secara massal menggunakan file Excel.
+        </p>
+        <button class="btn btn-secondary" id="downloadSubjTplBtn" style="width: fit-content;">📥 Unduh Template</button>
+        <div class="form-group" style="margin-top: 8px;">
+          <label>Unggah File (.xlsx)</label>
+          <input type="file" id="subjExcelFile" accept=".xlsx" class="form-control" />
+        </div>
+        <div id="importSubjStatus" style="font-size: 0.85rem; padding: 8px; border-radius: 4px; display: none;"></div>
+        <div class="form-actions" style="margin-top: 8px;">
+          <button class="btn btn-primary" id="processImportSubjBtn" style="width: 100%;">Proses Import</button>
+        </div>
+      </div>
+    `;
+
+    const { modal, closeModal: close } = openModal('Import Mata Pelajaran', modalHtml);
+
+    modal.querySelector('#downloadSubjTplBtn').addEventListener('click', () => {
+      downloadSubjectTemplate();
+      showToast('Template berhasil diunduh', 'info');
+    });
+
+    modal.querySelector('#processImportSubjBtn').addEventListener('click', async () => {
+      const fileInput = modal.querySelector('#subjExcelFile');
+      if (!fileInput.files || fileInput.files.length === 0) {
+        showToast('Pilih file Excel terlebih dahulu', 'warning');
+        return;
+      }
+
+      const file = fileInput.files[0];
+      const statusDiv = modal.querySelector('#importSubjStatus');
+      statusDiv.style.display = 'block';
+      statusDiv.style.background = 'var(--bg-tertiary)';
+      statusDiv.style.color = 'var(--text-primary)';
+      statusDiv.innerHTML = '🕒 Memproses file...';
+
+      try {
+        const buffer = await file.arrayBuffer();
+        const result = await importSubjectsFromExcel(buffer);
+
+        if (result.success) {
+          let msg = `✅ Berhasil mengimpor ${result.count} mata pelajaran.`;
+          if (result.errors && result.errors.length > 0) {
+            msg += `<br><br><b>Perhatian:</b><br><ul style="padding-left:16px;margin:4px 0;">${result.errors.map(e => `<li>${e}</li>`).join('')}</ul>`;
+            statusDiv.style.background = 'rgba(234, 179, 8, 0.1)';
+            statusDiv.style.color = '#ca8a04';
+          } else {
+            statusDiv.style.background = 'rgba(34, 197, 94, 0.1)';
+            statusDiv.style.color = '#22c55e';
+          }
+          statusDiv.innerHTML = msg;
+
+          if (result.count > 0) {
+            showToast(`${result.count} Mapel berhasil ditambahkan!`, 'success');
+            refreshPage();
+          }
+        } else {
+          statusDiv.style.background = 'rgba(239, 68, 68, 0.1)';
+          statusDiv.style.color = '#ef4444';
+          statusDiv.innerHTML = `❌ Gagal memproses file: ${result.error}`;
+        }
+      } catch (err) {
+        statusDiv.style.background = 'rgba(239, 68, 68, 0.1)';
+        statusDiv.style.color = '#ef4444';
+        statusDiv.innerHTML = `❌ Gagal: ${err.message}`;
       }
     });
   });

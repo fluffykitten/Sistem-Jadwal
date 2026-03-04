@@ -8,8 +8,11 @@ import { renderSemester, initSemester } from './pages/semester.js';
 import { renderSubjects, initSubjects } from './pages/subjects.js';
 import { renderClasses, initClasses } from './pages/classes.js';
 import { renderTeachers, initTeachers } from './pages/teachers.js';
+import { renderStudents, initStudents } from './pages/students.js';
 import { renderKbm, initKbm } from './pages/kbm.js';
 import { renderSchedule, initSchedule } from './pages/schedule.js';
+import { renderStudentAttendance, initStudentAttendance } from './pages/studentAttendance.js';
+import { renderStudentReports, initStudentReports } from './pages/studentReports.js';
 import { renderBackup, initBackup } from './pages/backup.js';
 import { renderReports, initReports } from './pages/reports.js';
 
@@ -21,9 +24,12 @@ const pages = {
     semester: { render: renderSemester, init: initSemester },
     subjects: { render: renderSubjects, init: initSubjects },
     classes: { render: renderClasses, init: initClasses },
+    students: { render: renderStudents, init: initStudents },
     teachers: { render: renderTeachers, init: initTeachers },
     kbm: { render: renderKbm, init: initKbm },
     schedule: { render: renderSchedule, init: initSchedule },
+    studentAttendance: { render: renderStudentAttendance, init: initStudentAttendance },
+    studentReports: { render: renderStudentReports, init: initStudentReports },
     backup: { render: renderBackup, init: initBackup },
     reports: { render: renderReports, init: initReports },
 };
@@ -36,9 +42,65 @@ function navigateTo(page) {
         item.classList.toggle('active', item.dataset.page === page);
     });
 
+    // Auto-open the parent group of the active page & highlight it
+    updateGroupActiveState();
+
     renderCurrentPage();
     updateSemesterSwitcher();
     updateSchoolName();
+}
+
+function updateGroupActiveState() {
+    document.querySelectorAll('.nav-group').forEach(group => {
+        const hasActive = group.querySelector('.nav-item.active') !== null;
+        group.classList.toggle('has-active', hasActive);
+
+        // Auto-expand group if it contains the active page
+        if (hasActive && !group.classList.contains('open')) {
+            toggleNavGroup(group, true);
+        }
+    });
+}
+
+function toggleNavGroup(group, forceOpen) {
+    const shouldOpen = forceOpen !== undefined ? forceOpen : !group.classList.contains('open');
+
+    if (shouldOpen) {
+        group.classList.add('open');
+        group.querySelector('.nav-group-toggle')?.setAttribute('aria-expanded', 'true');
+    } else {
+        group.classList.remove('open');
+        group.querySelector('.nav-group-toggle')?.setAttribute('aria-expanded', 'false');
+    }
+
+    // Save group states to localStorage
+    saveGroupStates();
+}
+
+function saveGroupStates() {
+    const states = {};
+    document.querySelectorAll('.nav-group').forEach(group => {
+        const groupName = group.dataset.group;
+        if (groupName) {
+            states[groupName] = group.classList.contains('open');
+        }
+    });
+    localStorage.setItem('jadwal-nav-groups', JSON.stringify(states));
+}
+
+function restoreGroupStates() {
+    try {
+        const saved = JSON.parse(localStorage.getItem('jadwal-nav-groups') || '{}');
+        document.querySelectorAll('.nav-group').forEach(group => {
+            const groupName = group.dataset.group;
+            if (groupName && saved[groupName]) {
+                group.classList.add('open');
+                group.querySelector('.nav-group-toggle')?.setAttribute('aria-expanded', 'true');
+            }
+        });
+    } catch (e) {
+        // Ignore parse errors
+    }
 }
 
 function renderCurrentPage() {
@@ -89,13 +151,26 @@ document.addEventListener('DOMContentLoaded', () => {
         localStorage.setItem('jadwal-theme', next);
     });
 
-    // Navigation clicks
+    // Navigation clicks (for all nav-items including children)
     document.querySelectorAll('.nav-item').forEach(item => {
         item.addEventListener('click', (e) => {
             e.preventDefault();
             navigateTo(item.dataset.page);
         });
     });
+
+    // Nav group toggle clicks
+    document.querySelectorAll('.nav-group-toggle').forEach(toggle => {
+        toggle.addEventListener('click', () => {
+            const group = toggle.closest('.nav-group');
+            if (group) {
+                toggleNavGroup(group);
+            }
+        });
+    });
+
+    // Restore saved group open/close states
+    restoreGroupStates();
 
     // Semester switcher
     document.getElementById('activeSemesterSelect')?.addEventListener('change', (e) => {
@@ -115,4 +190,7 @@ document.addEventListener('DOMContentLoaded', () => {
     updateSchoolName();
     updateSemesterSwitcher();
     renderCurrentPage();
+
+    // Ensure the active page's group is open on load
+    updateGroupActiveState();
 });
