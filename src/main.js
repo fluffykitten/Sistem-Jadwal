@@ -10,6 +10,8 @@ import { renderClasses, initClasses } from './pages/classes.js';
 import { renderTeachers, initTeachers } from './pages/teachers.js';
 import { renderKbm, initKbm } from './pages/kbm.js';
 import { renderSchedule, initSchedule } from './pages/schedule.js';
+import { renderBackup, initBackup } from './pages/backup.js';
+import { renderReports, initReports } from './pages/reports.js';
 
 let currentPage = 'dashboard';
 
@@ -22,6 +24,8 @@ const pages = {
     teachers: { render: renderTeachers, init: initTeachers },
     kbm: { render: renderKbm, init: initKbm },
     schedule: { render: renderSchedule, init: initSchedule },
+    backup: { render: renderBackup, init: initBackup },
+    reports: { render: renderReports, init: initReports },
 };
 
 function navigateTo(page) {

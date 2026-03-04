@@ -2,6 +2,7 @@
 import ExcelJS from 'exceljs';
 import { saveAs } from 'file-saver';
 import DataStore from '../dataStore.js';
+import { getTeacherColorMap } from './teacherColors.js';
 
 const DAYS = ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
 
@@ -143,6 +144,9 @@ export async function exportScheduleToExcel() {
             if (slots.length > maxSlots) maxSlots = slots.length;
         });
 
+        // Build teacher color map
+        const teacherColorMap = getTeacherColorMap(teachers);
+
         for (let idx = 0; idx < maxSlots; idx++) {
             // Find representative slot for label
             let slotLabel = '';
@@ -159,7 +163,7 @@ export async function exportScheduleToExcel() {
             }
 
             const isEvenRow = idx % 2 === 0;
-            const rowBg = isBreak ? breakBg : (isEvenRow ? 'FFFFFF' : lightBg);
+            const defaultRowBg = isBreak ? breakBg : (isEvenRow ? 'FFFFFF' : lightBg);
 
             // No
             const noCell = ws.getCell(row, 1);
@@ -188,7 +192,14 @@ export async function exportScheduleToExcel() {
                         const teacher = teachers.find(t => t.id === entry.teacherId);
                         const subject = subjects.find(s => s.id === entry.subjectId);
                         cell.value = `${subject ? subject.code : ''}\n${teacher ? teacher.name : ''}`;
-                        cell.font = { name: 'Arial', size: 9 };
+                        // Apply teacher color
+                        const tc = teacher ? teacherColorMap.get(teacher.id) : null;
+                        if (tc) {
+                            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: tc.excelBg } };
+                            cell.font = { name: 'Arial', size: 9, bold: true, color: { argb: tc.excelText } };
+                        } else {
+                            cell.font = { name: 'Arial', size: 9 };
+                        }
                     } else {
                         cell.value = '';
                     }
@@ -196,10 +207,12 @@ export async function exportScheduleToExcel() {
                 }
             });
 
-            // Apply styling to all cells in row
+            // Apply border styling to all cells in row (fill only if not already set by teacher color)
             for (let c = 1; c <= 8; c++) {
                 const cell = ws.getCell(row, c);
-                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: rowBg } };
+                if (!cell.fill || !cell.fill.fgColor) {
+                    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: defaultRowBg } };
+                }
                 cell.border = {
                     top: { style: 'thin', color: { argb: borderColor } },
                     bottom: { style: 'thin', color: { argb: borderColor } },

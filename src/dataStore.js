@@ -18,7 +18,8 @@ const defaultData = {
   classes: [],
   teachers: [],
   kbmProfiles: [],
-  schedules: []
+  schedules: [],
+  attendance: []
 };
 
 function generateId() {
@@ -302,6 +303,65 @@ const DataStore = {
     return _data.schedules.some(
       s => s.semesterId === sid && s.teacherId === teacherId && s.day === day && s.kbmSlotId === kbmSlotId && s.id !== excludeId
     );
+  },
+
+  // --- Attendance ---
+  getAttendance(date, semesterId) {
+    const sid = semesterId || _data.activeSemesterId;
+    if (!_data.attendance) _data.attendance = [];
+    return _data.attendance.find(a => a.date === date && a.semesterId === sid) || null;
+  },
+  saveAttendance(record) {
+    if (!_data.attendance) _data.attendance = [];
+    const sid = record.semesterId || _data.activeSemesterId;
+    const idx = _data.attendance.findIndex(a => a.date === record.date && a.semesterId === sid);
+    const full = { ...record, semesterId: sid };
+    if (idx !== -1) {
+      _data.attendance[idx] = full;
+    } else {
+      _data.attendance.push({ id: generateId(), ...full });
+    }
+    saveData(_data);
+  },
+  getAttendanceByRange(startDate, endDate, semesterId) {
+    const sid = semesterId || _data.activeSemesterId;
+    if (!_data.attendance) return [];
+    return _data.attendance.filter(a => a.semesterId === sid && a.date >= startDate && a.date <= endDate);
+  },
+
+  // --- Backup & Restore ---
+  exportData() {
+    return JSON.stringify({
+      _meta: {
+        app: 'jadwal_sekolah',
+        version: 1,
+        exportedAt: new Date().toISOString()
+      },
+      ..._data
+    }, null, 2);
+  },
+  importData(jsonString) {
+    const parsed = JSON.parse(jsonString);
+    // Validate structure
+    if (!parsed.school && !parsed.semesters && !parsed.subjects) {
+      // Check if it has _meta from our export
+      if (!parsed._meta || parsed._meta.app !== 'jadwal_sekolah') {
+        throw new Error('Format file backup tidak valid.');
+      }
+    }
+    // Remove meta before importing
+    const { _meta, ...importedData } = parsed;
+    // Merge with defaults to ensure all fields exist
+    _data = { ...defaultData, ...importedData };
+    saveData(_data);
+    return {
+      school: _data.school.name || '-',
+      semesters: (_data.semesters || []).length,
+      subjects: (_data.subjects || []).length,
+      classes: (_data.classes || []).length,
+      teachers: (_data.teachers || []).length,
+      schedules: (_data.schedules || []).length
+    };
   },
 
   // Utility

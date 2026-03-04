@@ -2,8 +2,16 @@
 import DataStore from '../dataStore.js';
 import { showToast } from '../components/toast.js';
 import { exportScheduleToExcel } from '../utils/excelExport.js';
+import { getTeacherColorMap } from '../utils/teacherColors.js';
 
 const DAYS = ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+
+// Subject type color mapping for non-pelajaran entries
+const TYPE_COLORS = {
+  ekskul: { bg: 'rgba(0, 184, 148, 0.15)', border: 'rgba(0, 184, 148, 0.35)', text: '#00b894' },
+  keagamaan: { bg: 'rgba(10, 189, 227, 0.15)', border: 'rgba(10, 189, 227, 0.35)', text: '#0abde3' },
+  upacara: { bg: 'rgba(240, 147, 43, 0.15)', border: 'rgba(240, 147, 43, 0.35)', text: '#f0932b' },
+};
 
 let selectedClassId = null;
 
@@ -28,10 +36,10 @@ export function renderSchedule() {
     `;
   }
 
-  if (classes.length === 0 || teachers.length === 0 || !hasSlots) {
+  // Only require classes and KBM slots (teachers no longer required for non-pelajaran)
+  if (classes.length === 0 || !hasSlots) {
     const missing = [];
     if (classes.length === 0) missing.push('Kelas');
-    if (teachers.length === 0) missing.push('Guru');
     if (!hasSlots) missing.push('Profil Jam KBM');
     return `
       <div class="page-enter">
@@ -50,16 +58,35 @@ export function renderSchedule() {
     selectedClassId = classes[0].id;
   }
 
+  // Build teacher color map
+  const teacherColorMap = getTeacherColorMap(teachers);
+
+  // Separate subjects into pelajaran and non-pelajaran
+  const nonPelajaranSubjects = subjects.filter(s => s.type && s.type !== 'pelajaran');
+
   // Teacher panel cards
   const teacherCards = teachers.map(t => {
     const subjNames = (t.subjectIds || []).map(sid => {
       const s = subjects.find(x => x.id === sid);
       return s ? s.code : '';
     }).filter(Boolean).join(', ');
+    const tc = teacherColorMap.get(t.id);
+    const colorStyle = tc ? `border-left: 3px solid ${tc.text}; background: ${tc.bg};` : '';
     return `
-      <div class="teacher-card" draggable="true" data-teacher-id="${t.id}" data-subject-ids="${(t.subjectIds || []).join(',')}">
+      <div class="teacher-card" draggable="true" data-teacher-id="${t.id}" data-subject-ids="${(t.subjectIds || []).join(',')}" style="${colorStyle}">
         <div class="teacher-name">${t.name}</div>
         <div class="teacher-subject">${subjNames || 'Tidak ada mapel'}</div>
+      </div>
+    `;
+  }).join('');
+
+  // Non-pelajaran subject cards
+  const nonPelajaranCards = nonPelajaranSubjects.map(s => {
+    const tc = TYPE_COLORS[s.type] || TYPE_COLORS.ekskul;
+    return `
+      <div class="subject-card" draggable="true" data-subject-id="${s.id}" data-type="${s.type}" style="border-left: 3px solid ${tc.text}; background: ${tc.bg};">
+        <div class="subject-card-name">${s.name}</div>
+        <div class="subject-card-type">${s.type}</div>
       </div>
     `;
   }).join('');
@@ -70,7 +97,6 @@ export function renderSchedule() {
   `).join('');
 
   // Build per-day schedule grid
-  // Collect max rows needed -- find the profile with most slots for each day
   const daySlots = {};
   let maxSlotCount = 0;
   DAYS.forEach(day => {
@@ -79,10 +105,6 @@ export function renderSchedule() {
     if (slots.length > maxSlotCount) maxSlotCount = slots.length;
   });
 
-  // We need to render day by day — each day column may have different rows
-  // Strategy: use a unified row layout based on max slots, where each row index
-  // maps to the slot at that position in the day's profile
-  const numCols = 1 + DAYS.length;
   const gridStyle = `grid-template-columns: 100px repeat(${DAYS.length}, 1fr);`;
 
   // Grid headers
@@ -93,15 +115,13 @@ export function renderSchedule() {
     return `<div class="grid-header">${d}${profileNote}</div>`;
   }).join('');
 
-  // Grid body — iterate by row index
+  // Grid body
   let gridBody = '';
   for (let rowIdx = 0; rowIdx < maxSlotCount; rowIdx++) {
-    // Find a representative slot for the time label (use first day that has this row)
     let timeLabel = '';
     let timeRange = '';
     let isBreakRow = false;
 
-    // Determine row label from first available profile at this index
     for (const day of DAYS) {
       const slots = daySlots[day];
       if (slots[rowIdx]) {
@@ -113,7 +133,6 @@ export function renderSchedule() {
       }
     }
 
-    // Time column
     gridBody += `
       <div class="grid-time ${isBreakRow ? 'is-break' : ''}">
         <span class="slot-label">${timeLabel}</span>
@@ -121,7 +140,6 @@ export function renderSchedule() {
       </div>
     `;
 
-    // Day cells
     DAYS.forEach(day => {
       const slots = daySlots[day];
       const slot = slots[rowIdx];
@@ -134,12 +152,33 @@ export function renderSchedule() {
         const entry = DataStore.getScheduleAt(day, slot.id, selectedClassId);
         let cellContent = '';
         if (entry) {
-          const teacher = teachers.find(t => t.id === entry.teacherId);
+          const teacher = entry.teacherId ? teachers.find(t => t.id === entry.teacherId) : null;
           const subject = subjects.find(s => s.id === entry.subjectId);
+          const isNonPelajaran = subject && subject.type && subject.type !== 'pelajaran';
+
+          let entryStyle = '';
+          let subjectStyle = '';
+
+          if (isNonPelajaran) {
+            // Use subject type color for non-pelajaran
+            const tc = TYPE_COLORS[subject.type] || TYPE_COLORS.ekskul;
+            entryStyle = `background: ${tc.bg}; border-color: ${tc.border};`;
+            subjectStyle = `color: ${tc.text};`;
+          } else if (teacher) {
+            // Use teacher color for pelajaran
+            const tc = teacherColorMap.get(teacher.id);
+            if (tc) {
+              entryStyle = `background: linear-gradient(135deg, ${tc.bg}, ${tc.bg}); border-color: ${tc.border};`;
+              subjectStyle = `color: ${tc.text};`;
+            }
+          }
+
+          const teacherDisplay = teacher ? teacher.name : (isNonPelajaran ? (subject.type) : '?');
+
           cellContent = `
-            <div class="schedule-entry type-${subject ? (subject.type || 'pelajaran') : 'pelajaran'}" data-schedule-id="${entry.id}">
-              <span class="entry-teacher">${teacher ? teacher.name : '?'}</span>
-              <span class="entry-subject">${subject ? subject.code : ''}</span>
+            <div class="schedule-entry" data-schedule-id="${entry.id}" style="${entryStyle}">
+              <span class="entry-subject" style="${subjectStyle}">${subject ? subject.code : ''}</span>
+              <span class="entry-teacher" style="font-size:0.65rem;">${teacherDisplay}</span>
               <button class="entry-remove" data-schedule-id="${entry.id}" title="Hapus">✕</button>
             </div>
           `;
@@ -164,13 +203,20 @@ export function renderSchedule() {
       </div>
 
       <div class="schedule-builder">
-        <!-- Teacher Panel -->
+        <!-- Side Panel -->
         <div class="teacher-panel">
           <div class="teacher-panel-title">Daftar Guru</div>
           <input type="text" class="teacher-search" id="teacherSearch" placeholder="🔍 Cari guru..." />
           <div id="teacherList">
             ${teacherCards}
           </div>
+
+          ${nonPelajaranSubjects.length > 0 ? `
+            <div class="teacher-panel-title" style="margin-top: 16px;">Kegiatan Lain</div>
+            <div id="nonPelajaranList">
+              ${nonPelajaranCards}
+            </div>
+          ` : ''}
         </div>
 
         <!-- Schedule Grid -->
@@ -235,15 +281,17 @@ export function initSchedule(refreshPage) {
 
 function setupDragAndDrop(refreshPage) {
   const teacherCards = document.querySelectorAll('.teacher-card');
+  const subjectCards = document.querySelectorAll('.subject-card');
   const cells = document.querySelectorAll('.schedule-cell:not(.is-break)');
 
   let dragData = null;
 
+  // Teacher card drag
   teacherCards.forEach(card => {
     card.addEventListener('dragstart', (e) => {
       const teacherId = card.dataset.teacherId;
       const subjectIds = (card.dataset.subjectIds || '').split(',').filter(Boolean);
-      dragData = { teacherId, subjectIds };
+      dragData = { type: 'teacher', teacherId, subjectIds };
       e.dataTransfer.setData('text/plain', teacherId);
       e.dataTransfer.effectAllowed = 'copy';
       card.classList.add('dragging');
@@ -252,36 +300,53 @@ function setupDragAndDrop(refreshPage) {
     card.addEventListener('dragend', () => {
       card.classList.remove('dragging');
       dragData = null;
-      cells.forEach(c => {
-        c.classList.remove('drag-over');
-        c.classList.remove('conflict');
-      });
+      cells.forEach(c => { c.classList.remove('drag-over', 'conflict'); });
+    });
+  });
+
+  // Non-pelajaran subject card drag
+  subjectCards.forEach(card => {
+    card.addEventListener('dragstart', (e) => {
+      const subjectId = card.dataset.subjectId;
+      dragData = { type: 'subject', subjectId, teacherId: null };
+      e.dataTransfer.setData('text/plain', subjectId);
+      e.dataTransfer.effectAllowed = 'copy';
+      card.classList.add('dragging');
+    });
+
+    card.addEventListener('dragend', () => {
+      card.classList.remove('dragging');
+      dragData = null;
+      cells.forEach(c => { c.classList.remove('drag-over', 'conflict'); });
     });
   });
 
   cells.forEach(cell => {
-    if (!cell.dataset.day) return; // Skip empty/inactive cells
+    if (!cell.dataset.day) return;
 
     cell.addEventListener('dragover', (e) => {
       e.preventDefault();
       e.dataTransfer.dropEffect = 'copy';
 
       if (dragData) {
-        const day = cell.dataset.day;
-        const slotId = cell.dataset.slotId;
-
-        // Determine if the subject being dragged is 'pelajaran' type
-        const subjects = DataStore.getSubjects();
-        const dragSubjects = (dragData.subjectIds || []).map(sid => subjects.find(s => s.id === sid)).filter(Boolean);
-        const allNonPelajaran = dragSubjects.length > 0 && dragSubjects.every(s => s.type && s.type !== 'pelajaran');
-
-        const hasConflict = allNonPelajaran ? false : DataStore.hasConflict(dragData.teacherId, day, slotId);
-
         cell.classList.remove('drag-over', 'conflict');
-        if (hasConflict) {
-          cell.classList.add('conflict');
-        } else {
+
+        if (dragData.type === 'subject') {
+          // Non-pelajaran: no conflict check needed
           cell.classList.add('drag-over');
+        } else {
+          const day = cell.dataset.day;
+          const slotId = cell.dataset.slotId;
+          const subjects = DataStore.getSubjects();
+          const dragSubjects = (dragData.subjectIds || []).map(sid => subjects.find(s => s.id === sid)).filter(Boolean);
+          const allNonPelajaran = dragSubjects.length > 0 && dragSubjects.every(s => s.type && s.type !== 'pelajaran');
+          const hasConflict = allNonPelajaran ? false : DataStore.hasConflict(dragData.teacherId, day, slotId);
+
+          if (hasConflict) {
+            cell.classList.add('conflict');
+          } else {
+            cell.classList.add('drag-over');
+          }
         }
       }
     });
@@ -299,7 +364,6 @@ function setupDragAndDrop(refreshPage) {
       const day = cell.dataset.day;
       const slotId = cell.dataset.slotId;
       const classId = cell.dataset.classId;
-      const teacherId = dragData.teacherId;
 
       const existing = DataStore.getScheduleAt(day, slotId, classId);
       if (existing) {
@@ -307,24 +371,32 @@ function setupDragAndDrop(refreshPage) {
         return;
       }
 
-      // Only check conflict for 'pelajaran' type subjects
-      const subjects = DataStore.getSubjects();
-      const dragSubjects = (dragData.subjectIds || []).map(sid => subjects.find(s => s.id === sid)).filter(Boolean);
-      const allNonPelajaran = dragSubjects.length > 0 && dragSubjects.every(s => s.type && s.type !== 'pelajaran');
-
-      if (!allNonPelajaran && DataStore.hasConflict(teacherId, day, slotId)) {
-        showToast('Guru ini sudah mengajar di jam yang sama di kelas lain!', 'error');
-        return;
-      }
-
-      const subjectId = dragData.subjectIds.length > 0 ? dragData.subjectIds[0] : null;
-
-      if (dragData.subjectIds.length > 1) {
-        showSubjectPicker(teacherId, dragData.subjectIds, day, slotId, classId, refreshPage);
-      } else {
-        DataStore.addSchedule({ teacherId, subjectId, day, kbmSlotId: slotId, classId });
-        showToast('Jadwal berhasil ditambahkan!', 'success');
+      if (dragData.type === 'subject') {
+        // Direct non-pelajaran subject placement (no teacher)
+        DataStore.addSchedule({ teacherId: null, subjectId: dragData.subjectId, day, kbmSlotId: slotId, classId });
+        showToast('Kegiatan berhasil ditambahkan!', 'success');
         refreshPage();
+      } else {
+        // Teacher-based placement
+        const teacherId = dragData.teacherId;
+        const subjects = DataStore.getSubjects();
+        const dragSubjects = (dragData.subjectIds || []).map(sid => subjects.find(s => s.id === sid)).filter(Boolean);
+        const allNonPelajaran = dragSubjects.length > 0 && dragSubjects.every(s => s.type && s.type !== 'pelajaran');
+
+        if (!allNonPelajaran && DataStore.hasConflict(teacherId, day, slotId)) {
+          showToast('Guru ini sudah mengajar di jam yang sama di kelas lain!', 'error');
+          return;
+        }
+
+        const subjectId = dragData.subjectIds.length > 0 ? dragData.subjectIds[0] : null;
+
+        if (dragData.subjectIds.length > 1) {
+          showSubjectPicker(teacherId, dragData.subjectIds, day, slotId, classId, refreshPage);
+        } else {
+          DataStore.addSchedule({ teacherId, subjectId, day, kbmSlotId: slotId, classId });
+          showToast('Jadwal berhasil ditambahkan!', 'success');
+          refreshPage();
+        }
       }
     });
   });
