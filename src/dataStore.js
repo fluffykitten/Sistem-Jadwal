@@ -362,6 +362,7 @@ const DataStore = {
       subjects: (_data.subjects || []).length,
       classes: (_data.classes || []).length,
       teachers: (_data.teachers || []).length,
+      students: (_data.students || []).length,
       schedules: (_data.schedules || []).length
     };
   },
@@ -425,6 +426,22 @@ const DataStore = {
       }
     });
 
+    saveData(_data);
+  },
+  saveOneStudentAttendance(record) {
+    // record: { studentId, date, status, notes }
+    if (!_data.studentAttendance) _data.studentAttendance = [];
+    const idx = _data.studentAttendance.findIndex(a => a.studentId === record.studentId && a.date === record.date);
+    if (record.status === '') {
+      // Remove record if status is cleared
+      if (idx !== -1) {
+        _data.studentAttendance.splice(idx, 1);
+      }
+    } else if (idx !== -1) {
+      _data.studentAttendance[idx] = { ..._data.studentAttendance[idx], ...record };
+    } else {
+      _data.studentAttendance.push({ id: generateId(), ...record });
+    }
     saveData(_data);
   },
 

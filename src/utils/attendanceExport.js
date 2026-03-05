@@ -84,6 +84,21 @@ function getTeacherDayDetail(attendance, teacherId) {
 function addKop(ws, school, totalCols, startRow) {
     let row = startRow || 1;
 
+    // Add logos as images if available
+    const workbook = ws.workbook;
+    if (school.logo) {
+        try {
+            const logoId = workbook.addImage({ base64: school.logo.split(',')[1], extension: 'png' });
+            ws.addImage(logoId, { tl: { col: 0, row: row - 1 }, ext: { width: 60, height: 60 } });
+        } catch (e) { /* skip if image fails */ }
+    }
+    if (school.logoYayasan) {
+        try {
+            const yayasanId = workbook.addImage({ base64: school.logoYayasan.split(',')[1], extension: 'png' });
+            ws.addImage(yayasanId, { tl: { col: totalCols - 1, row: row - 1 }, ext: { width: 60, height: 60 } });
+        } catch (e) { /* skip if image fails */ }
+    }
+
     // School Name
     ws.mergeCells(row, 1, row, totalCols);
     const nameCell = ws.getCell(row, 1);
@@ -92,6 +107,16 @@ function addKop(ws, school, totalCols, startRow) {
     nameCell.alignment = { horizontal: 'center', vertical: 'middle' };
     ws.getRow(row).height = 24;
     row++;
+
+    // Accreditation
+    if (school.accreditation) {
+        ws.mergeCells(row, 1, row, totalCols);
+        const accCell = ws.getCell(row, 1);
+        accCell.value = `Terakreditasi ${school.accreditation}`;
+        accCell.font = { name: 'Arial', size: 9, bold: true, color: { argb: '0064B4' } };
+        accCell.alignment = { horizontal: 'center', vertical: 'middle' };
+        row++;
+    }
 
     // Address
     ws.mergeCells(row, 1, row, totalCols);
@@ -372,28 +397,41 @@ export async function exportSemesterReport() {
 
     if (!activeSemester) { alert('Belum ada semester aktif!'); return; }
 
-    const pelajaranTeachers = teachers.filter(t => {
-        const subs = (t.subjectIds || []).map(sid => subjects.find(s => s.id === sid)).filter(Boolean);
-        return subs.length === 0 || subs.some(s => !s.type || s.type === 'pelajaran');
+
+    // Get ALL attendance records for this semester
+    const allAttendance = DataStore.getAttendanceByRange('2000-01-01', '2099-12-31', activeSemester.id);
+
+    // Determine actual months from attendance data
+    const monthSet = new Set();
+    allAttendance.forEach(a => {
+        if (a.date) {
+            const ym = a.date.substring(0, 7); // "YYYY-MM"
+            monthSet.add(ym);
+        }
     });
 
-    // Parse semester year range
-    const yearParts = (activeSemester.year || '2025/2026').split('/');
-    const year1 = parseInt(yearParts[0]) || 2025;
-    const isSem1 = (activeSemester.semester || '').includes('1') || (activeSemester.semester || '').toLowerCase().includes('ganjil');
+    // Sort months and build monthList from actual data
+    const monthList = Array.from(monthSet).sort().map(ym => {
+        const [y, m] = ym.split('-').map(Number);
+        return { year: y, month: m - 1 }; // month 0-indexed
+    });
 
-    // Generate 6 months for the semester
-    const monthList = [];
-    if (isSem1) {
-        for (let m = 6; m <= 11; m++) monthList.push({ year: year1, month: m }); // Jul-Dec
-    } else {
-        for (let m = 0; m <= 5; m++) monthList.push({ year: year1 + 1, month: m }); // Jan-Jun
+    // Fallback: if no attendance data, build from semester year
+    if (monthList.length === 0) {
+        const yearParts = (activeSemester.year || '2025/2026').split('/');
+        const year1 = parseInt(yearParts[0]) || 2025;
+        const isSem1 = (activeSemester.semester || '').toLowerCase().includes('ganjil');
+        if (isSem1) {
+            for (let m = 6; m <= 11; m++) monthList.push({ year: year1, month: m });
+        } else {
+            for (let m = 0; m <= 5; m++) monthList.push({ year: year1 + 1, month: m });
+        }
     }
 
     const workbook = new ExcelJS.Workbook();
     workbook.creator = 'Sistem Jadwal Sekolah';
 
-    // No, Nama, 6 months × 5 statuses, Total 5 statuses, %
+    // No, Nama, months × hadir count, Total 5 statuses, %
     const totalCols = 2 + monthList.length + 5 + 1;
     const ws = workbook.addWorksheet('Rekap Semester', {
         pageSetup: { paperSize: 9, orientation: 'landscape', fitToPage: true, fitToWidth: 1, fitToHeight: 0 }
@@ -452,7 +490,7 @@ export async function exportSemesterReport() {
     // Data
     const evenFill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'F0F4FA' } };
 
-    pelajaranTeachers.forEach((teacher, idx) => {
+    teachers.forEach((teacher, idx) => {
         const isEven = idx % 2 === 1;
         ws.getCell(row, 1).value = idx + 1;
         ws.getCell(row, 1).font = { name: 'Arial', size: 8 };
@@ -464,20 +502,23 @@ export async function exportSemesterReport() {
         let totalDays = 0;
 
         monthList.forEach((m, mi) => {
-            const daysInMonth = new Date(m.year, m.month + 1, 0).getDate();
-            const startD = `${m.year}-${String(m.month + 1).padStart(2, '0')}-01`;
-            const endD = `${m.year}-${String(m.month + 1).padStart(2, '0')}-${String(daysInMonth).padStart(2, '0')}`;
-            const dates = getDatesInRange(startD, endD);
+            const monthStr = `${m.year}-${String(m.month + 1).padStart(2, '0')}`;
+            const monthAttendance = allAttendance.filter(a => a.date && a.date.startsWith(monthStr));
 
             let monthHadir = 0;
-            dates.forEach(date => {
-                totalDays++;
-                const att = DataStore.getAttendance(date);
+            // Get unique dates in this month
+            const uniqueDates = [...new Set(monthAttendance.map(a => a.date))];
+            uniqueDates.forEach(date => {
+                const att = { entries: [] };
+                const dayRecord = allAttendance.find(a => a.date === date);
+                if (dayRecord && dayRecord.entries) att.entries = dayRecord.entries;
+
                 const status = getTeacherDayStatus(att, teacher.id);
-                if (!status) return; // Not recorded — skip
+                if (!status) return;
+                totalDays++;
                 const code = STATUS_CODES[status] || 'H';
                 grandCounts[code]++;
-                if (code === 'H') monthHadir++;
+                if (code === 'H' || code === 'T') monthHadir++;
             });
 
             const cell = ws.getCell(row, 3 + mi);

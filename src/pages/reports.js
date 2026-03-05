@@ -211,13 +211,10 @@ function buildExportPanel() {
 
   return `
     <div class="rpt-export-panel">
-      <div class="rpt-export-header" id="exportPanelToggle">
+      <div class="rpt-export-header open">
         <span>📥 Panel Ekspor Excel</span>
-        <svg class="rpt-export-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <polyline points="6 9 12 15 18 9"></polyline>
-        </svg>
       </div>
-      <div class="rpt-export-body" id="exportPanelBody">
+      <div class="rpt-export-body open" id="exportPanelBody">
         <div class="rpt-export-grid">
 
           <!-- Date Range Report -->
@@ -367,15 +364,6 @@ export function initReports(refreshPage) {
     showToast('Dashboard diperbarui', 'success');
   });
 
-  // Export panel toggle
-  document.getElementById('exportPanelToggle')?.addEventListener('click', () => {
-    const panel = document.getElementById('exportPanelBody');
-    const header = document.getElementById('exportPanelToggle');
-    if (panel && header) {
-      panel.classList.toggle('open');
-      header.classList.toggle('open');
-    }
-  });
 
   // Date Range Report
   document.getElementById('exportRangeBtn')?.addEventListener('click', async () => {

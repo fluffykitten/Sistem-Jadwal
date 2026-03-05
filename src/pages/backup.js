@@ -3,16 +3,17 @@ import DataStore from '../dataStore.js';
 import { showToast } from '../components/toast.js';
 
 export function renderBackup() {
-    const school = DataStore.getSchool();
-    const stats = {
-        semesters: DataStore.getSemesters().length,
-        subjects: DataStore.getSubjects().length,
-        classes: DataStore.getClasses().length,
-        teachers: DataStore.getTeachers().length,
-        schedules: DataStore.getSchedules().length,
-    };
+  const school = DataStore.getSchool();
+  const stats = {
+    semesters: DataStore.getSemesters().length,
+    subjects: DataStore.getSubjects().length,
+    classes: DataStore.getClasses().length,
+    teachers: DataStore.getTeachers().length,
+    students: DataStore.getStudents().length,
+    schedules: DataStore.getSchedules().length,
+  };
 
-    return `
+  return `
     <div class="page-enter">
       <div class="page-header">
         <div>
@@ -35,6 +36,7 @@ export function renderBackup() {
             <div class="backup-stat-row"><span>Mata Pelajaran</span><strong>${stats.subjects}</strong></div>
             <div class="backup-stat-row"><span>Kelas</span><strong>${stats.classes}</strong></div>
             <div class="backup-stat-row"><span>Guru</span><strong>${stats.teachers}</strong></div>
+            <div class="backup-stat-row"><span>Siswa</span><strong>${stats.students}</strong></div>
             <div class="backup-stat-row"><span>Jadwal</span><strong>${stats.schedules}</strong></div>
           </div>
           <button class="btn btn-primary backup-btn" id="backupBtn">
@@ -79,84 +81,85 @@ export function renderBackup() {
 }
 
 export function initBackup(refreshPage) {
-    let pendingData = null;
+  let pendingData = null;
 
-    // --- Backup ---
-    document.getElementById('backupBtn')?.addEventListener('click', () => {
-        try {
-            const json = DataStore.exportData();
-            const blob = new Blob([json], { type: 'application/json' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            const school = DataStore.getSchool();
-            const date = new Date().toISOString().slice(0, 10);
-            const schoolSlug = (school.name || 'sekolah').replace(/[^a-zA-Z0-9]/g, '_').substring(0, 30);
-            a.href = url;
-            a.download = `backup_${schoolSlug}_${date}.json`;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
-            showToast('Backup berhasil didownload!', 'success');
-        } catch (err) {
-            showToast('Gagal membuat backup: ' + err.message, 'error');
-        }
+  // --- Backup ---
+  document.getElementById('backupBtn')?.addEventListener('click', () => {
+    try {
+      const json = DataStore.exportData();
+      const blob = new Blob([json], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      const school = DataStore.getSchool();
+      const date = new Date().toISOString().slice(0, 10);
+      const schoolSlug = (school.name || 'sekolah').replace(/[^a-zA-Z0-9]/g, '_').substring(0, 30);
+      a.href = url;
+      a.download = `backup_${schoolSlug}_${date}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      showToast('Backup berhasil didownload!', 'success');
+    } catch (err) {
+      showToast('Gagal membuat backup: ' + err.message, 'error');
+    }
+  });
+
+  // --- Restore ---
+  const dropZone = document.getElementById('restoreDropZone');
+  const fileInput = document.getElementById('restoreFileInput');
+  const preview = document.getElementById('restorePreview');
+  const fileInfo = document.getElementById('restoreFileInfo');
+
+  if (dropZone && fileInput) {
+    dropZone.addEventListener('click', () => fileInput.click());
+
+    dropZone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      dropZone.classList.add('drag-active');
+    });
+    dropZone.addEventListener('dragleave', () => {
+      dropZone.classList.remove('drag-active');
+    });
+    dropZone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropZone.classList.remove('drag-active');
+      const file = e.dataTransfer.files[0];
+      if (file) handleFile(file);
     });
 
-    // --- Restore ---
-    const dropZone = document.getElementById('restoreDropZone');
-    const fileInput = document.getElementById('restoreFileInput');
-    const preview = document.getElementById('restorePreview');
-    const fileInfo = document.getElementById('restoreFileInfo');
+    fileInput.addEventListener('change', () => {
+      const file = fileInput.files[0];
+      if (file) handleFile(file);
+    });
+  }
 
-    if (dropZone && fileInput) {
-        dropZone.addEventListener('click', () => fileInput.click());
-
-        dropZone.addEventListener('dragover', (e) => {
-            e.preventDefault();
-            dropZone.classList.add('drag-active');
-        });
-        dropZone.addEventListener('dragleave', () => {
-            dropZone.classList.remove('drag-active');
-        });
-        dropZone.addEventListener('drop', (e) => {
-            e.preventDefault();
-            dropZone.classList.remove('drag-active');
-            const file = e.dataTransfer.files[0];
-            if (file) handleFile(file);
-        });
-
-        fileInput.addEventListener('change', () => {
-            const file = fileInput.files[0];
-            if (file) handleFile(file);
-        });
+  function handleFile(file) {
+    if (!file.name.endsWith('.json')) {
+      showToast('File harus berformat .json', 'warning');
+      return;
     }
 
-    function handleFile(file) {
-        if (!file.name.endsWith('.json')) {
-            showToast('File harus berformat .json', 'warning');
-            return;
-        }
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const parsed = JSON.parse(e.target.result);
+        pendingData = e.target.result;
 
-        const reader = new FileReader();
-        reader.onload = (e) => {
-            try {
-                const parsed = JSON.parse(e.target.result);
-                pendingData = e.target.result;
+        // Show preview
+        const meta = parsed._meta || {};
+        const exportDate = meta.exportedAt
+          ? new Date(meta.exportedAt).toLocaleString('id-ID')
+          : 'Tidak diketahui';
+        const schoolName = parsed.school?.name || '-';
+        const semCount = (parsed.semesters || []).length;
+        const teacherCount = (parsed.teachers || []).length;
+        const subjectCount = (parsed.subjects || []).length;
+        const classCount = (parsed.classes || []).length;
+        const studentCount = (parsed.students || []).length;
+        const scheduleCount = (parsed.schedules || []).length;
 
-                // Show preview
-                const meta = parsed._meta || {};
-                const exportDate = meta.exportedAt
-                    ? new Date(meta.exportedAt).toLocaleString('id-ID')
-                    : 'Tidak diketahui';
-                const schoolName = parsed.school?.name || '-';
-                const semCount = (parsed.semesters || []).length;
-                const teacherCount = (parsed.teachers || []).length;
-                const subjectCount = (parsed.subjects || []).length;
-                const classCount = (parsed.classes || []).length;
-                const scheduleCount = (parsed.schedules || []).length;
-
-                fileInfo.innerHTML = `
+        fileInfo.innerHTML = `
           <div class="restore-info-grid">
             <div class="backup-stat-row"><span>📄 File</span><strong>${file.name}</strong></div>
             <div class="backup-stat-row"><span>📅 Tanggal Backup</span><strong>${exportDate}</strong></div>
@@ -165,6 +168,7 @@ export function initBackup(refreshPage) {
             <div class="backup-stat-row"><span>👨‍🏫 Guru</span><strong>${teacherCount}</strong></div>
             <div class="backup-stat-row"><span>📖 Mapel</span><strong>${subjectCount}</strong></div>
             <div class="backup-stat-row"><span>🏛 Kelas</span><strong>${classCount}</strong></div>
+            <div class="backup-stat-row"><span>👩‍🎓 Siswa</span><strong>${studentCount}</strong></div>
             <div class="backup-stat-row"><span>📋 Jadwal</span><strong>${scheduleCount}</strong></div>
           </div>
           <div class="restore-warning">
@@ -172,37 +176,37 @@ export function initBackup(refreshPage) {
           </div>
         `;
 
-                dropZone.classList.add('hidden');
-                preview.classList.remove('hidden');
-            } catch (err) {
-                showToast('File tidak valid: ' + err.message, 'error');
-                pendingData = null;
-            }
-        };
-        reader.readAsText(file);
-    }
-
-    document.getElementById('cancelRestoreBtn')?.addEventListener('click', () => {
+        dropZone.classList.add('hidden');
+        preview.classList.remove('hidden');
+      } catch (err) {
+        showToast('File tidak valid: ' + err.message, 'error');
         pendingData = null;
-        dropZone.classList.remove('hidden');
-        preview.classList.add('hidden');
-        fileInput.value = '';
-    });
+      }
+    };
+    reader.readAsText(file);
+  }
 
-    document.getElementById('confirmRestoreBtn')?.addEventListener('click', () => {
-        if (!pendingData) return;
+  document.getElementById('cancelRestoreBtn')?.addEventListener('click', () => {
+    pendingData = null;
+    dropZone.classList.remove('hidden');
+    preview.classList.add('hidden');
+    fileInput.value = '';
+  });
 
-        try {
-            const result = DataStore.importData(pendingData);
-            showToast(`Data berhasil dipulihkan! (${result.teachers} guru, ${result.subjects} mapel, ${result.schedules} jadwal)`, 'success');
-            pendingData = null;
+  document.getElementById('confirmRestoreBtn')?.addEventListener('click', () => {
+    if (!pendingData) return;
 
-            // Refresh the entire app
-            setTimeout(() => {
-                window.location.reload();
-            }, 1200);
-        } catch (err) {
-            showToast('Gagal memulihkan data: ' + err.message, 'error');
-        }
-    });
+    try {
+      const result = DataStore.importData(pendingData);
+      showToast(`Data berhasil dipulihkan! (${result.teachers} guru, ${result.students} siswa, ${result.subjects} mapel, ${result.schedules} jadwal)`, 'success');
+      pendingData = null;
+
+      // Refresh the entire app
+      setTimeout(() => {
+        window.location.reload();
+      }, 1200);
+    } catch (err) {
+      showToast('Gagal memulihkan data: ' + err.message, 'error');
+    }
+  });
 }

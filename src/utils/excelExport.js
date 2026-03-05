@@ -341,15 +341,16 @@ export async function generateStudentAttendanceReport(month, year) {
     schoolCell.alignment = { horizontal: 'center' };
     sRow += 2;
 
-    let totalH = 0, totalS = 0, totalI = 0, totalA = 0;
+    let totalH = 0, totalT = 0, totalS = 0, totalI = 0, totalA = 0;
     attendance.forEach(a => {
-        if (a.status === 'H') totalH++;
-        if (a.status === 'S') totalS++;
-        if (a.status === 'I') totalI++;
-        if (a.status === 'A') totalA++;
+        if (a.status === 'hadir') totalH++;
+        else if (a.status === 'terlambat') totalT++;
+        else if (a.status === 'sakit') totalS++;
+        else if (a.status === 'izin') totalI++;
+        else if (a.status === 'alfa') totalA++;
     });
-    const totalRecords = totalH + totalS + totalI + totalA;
-    const avgPct = totalRecords > 0 ? Math.round((totalH / totalRecords) * 1000) / 10 : 0;
+    const totalRecords = totalH + totalT + totalS + totalI + totalA;
+    const avgPct = totalRecords > 0 ? Math.round(((totalH + totalT) / totalRecords) * 1000) / 10 : 0;
 
     wsSummary.getCell(sRow, 1).value = 'Total Siswa:';
     wsSummary.getCell(sRow, 2).value = students.length;
@@ -360,7 +361,7 @@ export async function generateStudentAttendanceReport(month, year) {
     wsSummary.getCell(sRow, 1).font = { bold: true };
     sRow += 2;
 
-    const classHeaders = ['Kelas', 'Jml Siswa', 'Hadir', 'Sakit', 'Izin', 'Alfa', '% Kehadiran'];
+    const classHeaders = ['Kelas', 'Jml Siswa', 'Hadir', 'Terlambat', 'Sakit', 'Izin', 'Alfa', '% Kehadiran'];
     classHeaders.forEach((h, idx) => {
         const cell = wsSummary.getCell(sRow, idx + 1);
         cell.value = h;
@@ -376,23 +377,25 @@ export async function generateStudentAttendanceReport(month, year) {
         if (classStudents.length === 0) continue;
         const classStudentIds = new Set(classStudents.map(s => s.id));
         const classAtt = attendance.filter(a => classStudentIds.has(a.studentId));
-        let ch = 0, cs = 0, ci = 0, ca = 0;
+        let ch = 0, ct = 0, cs = 0, ci = 0, ca = 0;
         classAtt.forEach(a => {
-            if (a.status === 'H') ch++;
-            if (a.status === 'S') cs++;
-            if (a.status === 'I') ci++;
-            if (a.status === 'A') ca++;
+            if (a.status === 'hadir') ch++;
+            else if (a.status === 'terlambat') ct++;
+            else if (a.status === 'sakit') cs++;
+            else if (a.status === 'izin') ci++;
+            else if (a.status === 'alfa') ca++;
         });
-        const cTotal = ch + cs + ci + ca;
-        const cPct = cTotal > 0 ? Math.round((ch / cTotal) * 1000) / 10 : 0;
+        const cTotal = ch + ct + cs + ci + ca;
+        const cPct = cTotal > 0 ? Math.round(((ch + ct) / cTotal) * 1000) / 10 : 0;
         wsSummary.getCell(sRow, 1).value = cls.name;
         wsSummary.getCell(sRow, 2).value = classStudents.length;
         wsSummary.getCell(sRow, 3).value = ch;
-        wsSummary.getCell(sRow, 4).value = cs;
-        wsSummary.getCell(sRow, 5).value = ci;
-        wsSummary.getCell(sRow, 6).value = ca;
-        wsSummary.getCell(sRow, 7).value = cPct + '%';
-        for (let c = 1; c <= 7; c++) {
+        wsSummary.getCell(sRow, 4).value = ct;
+        wsSummary.getCell(sRow, 5).value = cs;
+        wsSummary.getCell(sRow, 6).value = ci;
+        wsSummary.getCell(sRow, 7).value = ca;
+        wsSummary.getCell(sRow, 8).value = cPct + '%';
+        for (let c = 1; c <= 8; c++) {
             wsSummary.getCell(sRow, c).alignment = { horizontal: 'center' };
             wsSummary.getCell(sRow, c).border = { top: { style: 'thin' }, bottom: { style: 'thin' }, left: { style: 'thin' }, right: { style: 'thin' } };
         }
@@ -410,10 +413,10 @@ export async function generateStudentAttendanceReport(month, year) {
         const ws = workbook.addWorksheet(`Kelas ${cls.name}`, {
             pageSetup: { orientation: 'landscape', fitToPage: true, fitToWidth: 1, fitToHeight: 0 }
         });
-        const totalCols = 4 + daysInMonth + 4;
+        const totalCols = 4 + daysInMonth + 5;
         const cols = [{ width: 5 }, { width: 30 }, { width: 15 }, { width: 5 }];
         for (let i = 1; i <= daysInMonth; i++) cols.push({ width: 3.5 });
-        cols.push({ width: 5 }, { width: 5 }, { width: 5 }, { width: 5 });
+        cols.push({ width: 5 }, { width: 5 }, { width: 5 }, { width: 5 }, { width: 5 });
         ws.columns = cols;
 
         let row = 1;
@@ -435,9 +438,10 @@ export async function generateStudentAttendanceReport(month, year) {
         for (let i = 1; i <= daysInMonth; i++) ws.getCell(row, 4 + i).value = i;
         const rekapStart = 4 + daysInMonth + 1;
         ws.getCell(row, rekapStart).value = 'H';
-        ws.getCell(row, rekapStart + 1).value = 'S';
-        ws.getCell(row, rekapStart + 2).value = 'I';
-        ws.getCell(row, rekapStart + 3).value = 'A';
+        ws.getCell(row, rekapStart + 1).value = 'T';
+        ws.getCell(row, rekapStart + 2).value = 'S';
+        ws.getCell(row, rekapStart + 3).value = 'I';
+        ws.getCell(row, rekapStart + 4).value = 'A';
         for (let c = 1; c <= totalCols; c++) {
             const cell = ws.getCell(row, c);
             cell.font = { bold: true, color: { argb: 'FFFFFF' } };
@@ -452,8 +456,9 @@ export async function generateStudentAttendanceReport(month, year) {
             ws.getCell(row, 2).value = student.name;
             ws.getCell(row, 3).value = student.nisn || '-';
             ws.getCell(row, 4).value = student.gender || '-';
-            let h = 0, s = 0, iStat = 0, a = 0;
+            let h = 0, t = 0, s = 0, iStat = 0, a = 0;
             const studentAtt = attendance.filter(att => att.studentId === student.id);
+            const statusDisplayMap = { 'hadir': 'H', 'terlambat': 'T', 'sakit': 'S', 'izin': 'I', 'alfa': 'A' };
             for (let d = 1; d <= daysInMonth; d++) {
                 const dayStr = d.toString().padStart(2, '0');
                 const monthStr = (month + 1).toString().padStart(2, '0');
@@ -461,19 +466,21 @@ export async function generateStudentAttendanceReport(month, year) {
                 const record = studentAtt.find(att => att.date === dateStr);
                 let statusVal = '';
                 if (record) {
-                    statusVal = record.status;
-                    if (statusVal === 'H') h++;
-                    if (statusVal === 'S') s++;
-                    if (statusVal === 'I') iStat++;
-                    if (statusVal === 'A') a++;
+                    statusVal = statusDisplayMap[record.status] || record.status;
+                    if (record.status === 'hadir') h++;
+                    else if (record.status === 'terlambat') t++;
+                    else if (record.status === 'sakit') s++;
+                    else if (record.status === 'izin') iStat++;
+                    else if (record.status === 'alfa') a++;
                 }
                 ws.getCell(row, 4 + d).value = statusVal;
                 ws.getCell(row, 4 + d).alignment = { horizontal: 'center' };
             }
             ws.getCell(row, rekapStart).value = h;
-            ws.getCell(row, rekapStart + 1).value = s;
-            ws.getCell(row, rekapStart + 2).value = iStat;
-            ws.getCell(row, rekapStart + 3).value = a;
+            ws.getCell(row, rekapStart + 1).value = t;
+            ws.getCell(row, rekapStart + 2).value = s;
+            ws.getCell(row, rekapStart + 3).value = iStat;
+            ws.getCell(row, rekapStart + 4).value = a;
             for (let c = 1; c <= totalCols; c++) {
                 ws.getCell(row, c).border = { top: { style: 'thin' }, bottom: { style: 'thin' }, left: { style: 'thin' }, right: { style: 'thin' } };
             }
@@ -507,18 +514,19 @@ export async function generateStudentAttendanceReport(month, year) {
     classes.forEach(c => { classMap[c.id] = c.name; });
     const perStudent = {};
     students.forEach(s => {
-        perStudent[s.id] = { name: s.name, className: classMap[s.classId] || '-', h: 0, s: 0, i: 0, a: 0 };
+        perStudent[s.id] = { name: s.name, className: classMap[s.classId] || '-', h: 0, t: 0, s: 0, i: 0, a: 0 };
     });
     attendance.forEach(a => {
         if (perStudent[a.studentId]) {
-            if (a.status === 'H') perStudent[a.studentId].h++;
-            if (a.status === 'S') perStudent[a.studentId].s++;
-            if (a.status === 'I') perStudent[a.studentId].i++;
-            if (a.status === 'A') perStudent[a.studentId].a++;
+            if (a.status === 'hadir') perStudent[a.studentId].h++;
+            else if (a.status === 'terlambat') perStudent[a.studentId].t++;
+            else if (a.status === 'sakit') perStudent[a.studentId].s++;
+            else if (a.status === 'izin') perStudent[a.studentId].i++;
+            else if (a.status === 'alfa') perStudent[a.studentId].a++;
         }
     });
     const warnings = Object.values(perStudent)
-        .map(ps => { const total = ps.h + ps.s + ps.i + ps.a; ps.pct = total > 0 ? Math.round((ps.h / total) * 1000) / 10 : 0; ps.total = total; return ps; })
+        .map(ps => { const total = ps.h + ps.t + ps.s + ps.i + ps.a; ps.pct = total > 0 ? Math.round(((ps.h + ps.t) / total) * 1000) / 10 : 0; ps.total = total; return ps; })
         .filter(ps => ps.a >= 3 || (ps.total > 0 && ps.pct < 80))
         .sort((a, b) => b.a - a.a);
 

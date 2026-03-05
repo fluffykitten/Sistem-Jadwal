@@ -15,17 +15,34 @@ export function renderSchool() {
       </div>
 
       <div class="card school-form">
-        <div class="logo-upload">
-          <div class="logo-preview" id="logoPreview">
-            ${school.logo
+        <div style="display: flex; gap: 24px; flex-wrap: wrap; align-items: flex-start;">
+          <div class="logo-upload">
+            <p style="font-size: 0.8rem; font-weight: 600; margin-bottom: 6px; color: var(--text-secondary);">Logo Sekolah</p>
+            <div class="logo-preview" id="logoPreview">
+              ${school.logo
       ? `<img src="${school.logo}" alt="Logo Sekolah" />`
       : `<span class="logo-placeholder">📷</span>`
     }
+            </div>
+            <div>
+              <button class="btn btn-secondary btn-sm" id="uploadLogoBtn">Upload Logo</button>
+              <input type="file" id="logoFileInput" accept="image/*" style="display:none" />
+              <p style="font-size: 0.72rem; color: var(--text-tertiary); margin-top: 4px;">JPG, PNG maks. 500KB</p>
+            </div>
           </div>
-          <div>
-            <button class="btn btn-secondary btn-sm" id="uploadLogoBtn">Upload Logo</button>
-            <input type="file" id="logoFileInput" accept="image/*" style="display:none" />
-            <p style="font-size: 0.72rem; color: var(--text-tertiary); margin-top: 4px;">JPG, PNG maks. 500KB</p>
+          <div class="logo-upload">
+            <p style="font-size: 0.8rem; font-weight: 600; margin-bottom: 6px; color: var(--text-secondary);">Logo Yayasan</p>
+            <div class="logo-preview" id="logoYayasanPreview">
+              ${school.logoYayasan
+      ? `<img src="${school.logoYayasan}" alt="Logo Yayasan" />`
+      : `<span class="logo-placeholder">📷</span>`
+    }
+            </div>
+            <div>
+              <button class="btn btn-secondary btn-sm" id="uploadLogoYayasanBtn">Upload Logo</button>
+              <input type="file" id="logoYayasanFileInput" accept="image/*" style="display:none" />
+              <p style="font-size: 0.72rem; color: var(--text-tertiary); margin-top: 4px;">JPG, PNG maks. 500KB</p>
+            </div>
           </div>
         </div>
 
@@ -41,16 +58,31 @@ export function renderSchool() {
             </div>
           </div>
 
+          <div class="form-row">
+            <div class="form-group">
+              <label for="schoolAccreditation">Akreditasi</label>
+              <select class="form-control" id="schoolAccreditation">
+                <option value="" ${!school.accreditation ? 'selected' : ''}>-- Pilih --</option>
+                <option value="A" ${school.accreditation === 'A' ? 'selected' : ''}>Terakreditasi A</option>
+                <option value="B" ${school.accreditation === 'B' ? 'selected' : ''}>Terakreditasi B</option>
+                <option value="C" ${school.accreditation === 'C' ? 'selected' : ''}>Terakreditasi C</option>
+                <option value="Unggul" ${school.accreditation === 'Unggul' ? 'selected' : ''}>Terakreditasi Unggul</option>
+                <option value="Baik Sekali" ${school.accreditation === 'Baik Sekali' ? 'selected' : ''}>Terakreditasi Baik Sekali</option>
+                <option value="Baik" ${school.accreditation === 'Baik' ? 'selected' : ''}>Terakreditasi Baik</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="schoolPhone">Telepon</label>
+              <input type="text" class="form-control" id="schoolPhone" placeholder="(021) xxx-xxxx" value="${school.phone || ''}" />
+            </div>
+          </div>
+
           <div class="form-group">
             <label for="schoolAddress">Alamat</label>
             <textarea class="form-control" id="schoolAddress" placeholder="Alamat lengkap sekolah">${school.address || ''}</textarea>
           </div>
 
           <div class="form-row">
-            <div class="form-group">
-              <label for="schoolPhone">Telepon</label>
-              <input type="text" class="form-control" id="schoolPhone" placeholder="(021) xxx-xxxx" value="${school.phone || ''}" />
-            </div>
             <div class="form-group">
               <label for="schoolEmail">Email</label>
               <input type="email" class="form-control" id="schoolEmail" placeholder="sekolah@email.com" value="${school.email || ''}" />
@@ -81,11 +113,17 @@ export function initSchool() {
   const logoPreview = document.getElementById('logoPreview');
   const uploadBtn = document.getElementById('uploadLogoBtn');
   const fileInput = document.getElementById('logoFileInput');
+  const logoYayasanPreview = document.getElementById('logoYayasanPreview');
+  const uploadYayasanBtn = document.getElementById('uploadLogoYayasanBtn');
+  const yayasanFileInput = document.getElementById('logoYayasanFileInput');
 
   let currentLogo = DataStore.getSchool().logo || '';
+  let currentLogoYayasan = DataStore.getSchool().logoYayasan || '';
 
   uploadBtn.addEventListener('click', () => fileInput.click());
   logoPreview.addEventListener('click', () => fileInput.click());
+  uploadYayasanBtn.addEventListener('click', () => yayasanFileInput.click());
+  logoYayasanPreview.addEventListener('click', () => yayasanFileInput.click());
 
   fileInput.addEventListener('change', (e) => {
     const file = e.target.files[0];
@@ -102,17 +140,34 @@ export function initSchool() {
     reader.readAsDataURL(file);
   });
 
+  yayasanFileInput.addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (file.size > 512000) {
+      showToast('Ukuran file terlalu besar (maks 500KB)', 'error');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      currentLogoYayasan = ev.target.result;
+      logoYayasanPreview.innerHTML = `<img src="${currentLogoYayasan}" alt="Logo Yayasan" />`;
+    };
+    reader.readAsDataURL(file);
+  });
+
   form.addEventListener('submit', (e) => {
     e.preventDefault();
     const data = {
       name: document.getElementById('schoolName').value.trim(),
       npsn: document.getElementById('schoolNpsn').value.trim(),
+      accreditation: document.getElementById('schoolAccreditation').value,
       address: document.getElementById('schoolAddress').value.trim(),
       phone: document.getElementById('schoolPhone').value.trim(),
       email: document.getElementById('schoolEmail').value.trim(),
       principal: document.getElementById('schoolPrincipal').value.trim(),
       vicePrincipal: document.getElementById('schoolVicePrincipal').value.trim(),
-      logo: currentLogo
+      logo: currentLogo,
+      logoYayasan: currentLogoYayasan
     };
     DataStore.saveSchool(data);
     // Update sidebar school name
