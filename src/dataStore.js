@@ -12,6 +12,9 @@ const defaultData = {
     vicePrincipal: '',
     logo: ''
   },
+  settings: {
+    attendanceDisplay: 'emoji' // 'emoji' or 'text'
+  },
   semesters: [],
   activeSemesterId: null,
   subjects: [],
@@ -76,6 +79,15 @@ const DataStore = {
   },
   saveSchool(schoolData) {
     _data.school = { ...schoolData };
+    saveData(_data);
+  },
+
+  // --- Settings ---
+  getSettings() {
+    return { ...defaultData.settings, ...(_data.settings || {}) };
+  },
+  saveSettings(settingsData) {
+    _data.settings = { ..._data.settings, ...settingsData };
     saveData(_data);
   },
 

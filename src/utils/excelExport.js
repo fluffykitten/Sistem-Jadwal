@@ -234,7 +234,7 @@ export async function exportScheduleToExcel() {
         const dateCell = ws.getCell(row, 5);
         const now = new Date();
         const months = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
-        dateCell.value = `${school.address ? school.address.split(',')[0].trim() : '............'}, ${now.getDate()} ${months[now.getMonth()]} ${now.getFullYear()}`;
+        dateCell.value = `.................., ${now.getDate()} ${months[now.getMonth()]} ${now.getFullYear()}`;
         dateCell.font = { name: 'Arial', size: 10 };
         dateCell.alignment = { horizontal: 'center' };
         row++;
@@ -274,7 +274,7 @@ export async function exportScheduleToExcel() {
         wakasekName.alignment = { horizontal: 'center' };
         row++;
 
-        // NIP lines (optional placeholder)
+        // NIP lines
         ws.mergeCells(row, 1, row, 4);
         const nipKepsek = ws.getCell(row, 1);
         nipKepsek.value = 'NIP. ..............................';
@@ -292,6 +292,659 @@ export async function exportScheduleToExcel() {
     const schoolName = (school.name || 'Sekolah').replace(/[^a-zA-Z0-9 ]/g, '').replace(/\s+/g, '_');
     const semName = (activeSemester.name || 'Semester').replace(/[^a-zA-Z0-9 ]/g, '').replace(/\s+/g, '_');
     const filename = `Jadwal_${schoolName}_${semName}.xlsx`;
+
+    saveAs(new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), filename);
+}
+
+// ============================================================
+// Export Full Schedule (all classes in one table)
+// ============================================================
+
+function generateTeacherInitials(teachers, subjects) {
+    const initialsMap = new Map();
+    const usedInitials = new Set();
+
+    teachers.forEach(t => {
+        const parts = t.name.replace(/[^a-zA-Z\s]/g, '').trim().split(/\s+/).filter(Boolean);
+
+        // Natural initials: first letter of first name + first letter of second name
+        let naturalInitials;
+        if (parts.length >= 2) {
+            naturalInitials = (parts[0][0] + parts[1][0]).toUpperCase();
+        } else if (parts.length === 1) {
+            naturalInitials = parts[0].substring(0, 2).toUpperCase();
+        } else {
+            naturalInitials = 'XX';
+        }
+
+        let initials = naturalInitials;
+
+        // If natural initials already taken, find alternative
+        if (usedInitials.has(initials)) {
+            let resolved = false;
+
+            // Strategy 1: first letter of first name + first letter of each other word
+            // e.g. "Mutiara Fahma Nagari" with MN taken → try MF
+            for (let w = 1; w < parts.length && !resolved; w++) {
+                const candidate = (parts[0][0] + parts[w][0]).toUpperCase();
+                if (candidate !== initials && !usedInitials.has(candidate)) {
+                    initials = candidate;
+                    resolved = true;
+                }
+            }
+
+            // Strategy 2: first letter of first name + deeper letters from words (last name first)
+            // e.g. "Salman Madani" with SM taken → try SA (S + mAdani[1])
+            if (!resolved) {
+                for (let w = parts.length - 1; w >= 0 && !resolved; w--) {
+                    for (let c = 1; c < parts[w].length && !resolved; c++) {
+                        const candidate = (parts[0][0] + parts[w][c]).toUpperCase();
+                        if (!usedInitials.has(candidate)) {
+                            initials = candidate;
+                            resolved = true;
+                        }
+                    }
+                }
+            }
+
+            // Strategy 3: brute force from all name letters
+            if (!resolved) {
+                const allLetters = parts.join('').toUpperCase();
+                for (let i = 0; i < allLetters.length && !resolved; i++) {
+                    for (let j = 0; j < allLetters.length && !resolved; j++) {
+                        if (i === j) continue;
+                        const candidate = allLetters[i] + allLetters[j];
+                        if (!usedInitials.has(candidate)) {
+                            initials = candidate;
+                            resolved = true;
+                        }
+                    }
+                }
+            }
+        }
+
+        usedInitials.add(initials);
+
+        // Get subject names
+        const subjNames = (t.subjectIds || []).map(sid => {
+            const s = subjects.find(x => x.id === sid);
+            return s ? s.name : '';
+        }).filter(Boolean).join(', ');
+
+        initialsMap.set(t.id, { initials, name: t.name, subjects: subjNames });
+    });
+
+    return initialsMap;
+}
+
+export async function exportFullScheduleToExcel() {
+    const school = DataStore.getSchool();
+    const activeSemester = DataStore.getActiveSemester();
+    const classes = DataStore.getClasses();
+    const teachers = DataStore.getTeachers();
+    const subjects = DataStore.getSubjects();
+
+    if (!activeSemester) {
+        alert('Belum ada semester aktif!');
+        return;
+    }
+    if (classes.length === 0) {
+        alert('Belum ada data kelas!');
+        return;
+    }
+
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = 'Sistem Jadwal Sekolah';
+    workbook.created = new Date();
+
+    // Colors
+    const headerBg = '2F5496';
+    const dayHeaderBg = '375F9F';
+    const lightBg = 'D6E4F0';
+    const breakBg = 'FFF2CC';
+    const borderColor = '8DB4E2';
+    const legendHeaderBg = '4472C4';
+
+    // Generate teacher initials
+    const teacherInitials = generateTeacherInitials(teachers, subjects);
+
+    // Gather day slots
+    const daySlots = {};
+    DAYS.forEach(day => {
+        daySlots[day] = DataStore.getKbmSlotsForDay(day);
+    });
+
+    // Calculate total data columns: Hari + No + Jam + (classes)
+    const totalClassCols = classes.length;
+    const fixedCols = 3; // Hari, No, Jam
+    const totalTableCols = fixedCols + totalClassCols;
+
+    // Legend will go to the right, starting from column totalTableCols + 2
+    const legendStartCol = totalTableCols + 2;
+    const legendEndCol = legendStartCol + 2; // Kode, Nama, Mapel
+
+    const ws = workbook.addWorksheet('Jadwal Lengkap', {
+        pageSetup: {
+            paperSize: 9,
+            orientation: 'landscape',
+            fitToPage: true,
+            fitToWidth: 1,
+            fitToHeight: 0,
+            margins: { left: 0.4, right: 0.4, top: 0.4, bottom: 0.4, header: 0.2, footer: 0.2 }
+        }
+    });
+
+    // Set column widths
+    const colWidths = [
+        { width: 10 },  // A: Hari
+        { width: 5 },   // B: No
+        { width: 13 },  // C: Jam
+    ];
+    for (let i = 0; i < totalClassCols; i++) {
+        colWidths.push({ width: 12 }); // Class columns
+    }
+    // Gap column
+    colWidths.push({ width: 2 });
+    // Legend columns
+    colWidths.push({ width: 7 });  // Kode
+    colWidths.push({ width: 25 }); // Nama Guru
+    colWidths.push({ width: 22 }); // Mata Pelajaran
+    ws.columns = colWidths;
+
+    let row = 1;
+    const months = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+
+    // ============ KOP SEKOLAH ============
+    ws.mergeCells(row, 1, row, totalTableCols);
+    const nameCell = ws.getCell(row, 1);
+    nameCell.value = (school.name || 'NAMA SEKOLAH').toUpperCase();
+    nameCell.font = { name: 'Arial', size: 14, bold: true, color: { argb: '000000' } };
+    nameCell.alignment = { horizontal: 'center', vertical: 'middle' };
+    ws.getRow(row).height = 24;
+    row++;
+
+    // Address
+    ws.mergeCells(row, 1, row, totalTableCols);
+    const addrCell = ws.getCell(row, 1);
+    addrCell.value = school.address || 'Alamat Sekolah';
+    addrCell.font = { name: 'Arial', size: 9, color: { argb: '333333' } };
+    addrCell.alignment = { horizontal: 'center', vertical: 'middle' };
+    row++;
+
+    // NPSN + Phone + Email
+    const infoLine = [
+        school.npsn ? `NPSN: ${school.npsn}` : '',
+        school.phone ? `Telp: ${school.phone}` : '',
+        school.email || ''
+    ].filter(Boolean).join('  |  ');
+    if (infoLine) {
+        ws.mergeCells(row, 1, row, totalTableCols);
+        const infoCell = ws.getCell(row, 1);
+        infoCell.value = infoLine;
+        infoCell.font = { name: 'Arial', size: 8, color: { argb: '666666' } };
+        infoCell.alignment = { horizontal: 'center', vertical: 'middle' };
+        row++;
+    }
+
+    // Divider
+    ws.mergeCells(row, 1, row, totalTableCols);
+    ws.getCell(row, 1).border = { bottom: { style: 'double', color: { argb: '000000' } } };
+    ws.getRow(row).height = 6;
+    row++;
+
+    // Title
+    row++;
+    ws.mergeCells(row, 1, row, totalTableCols);
+    const titleCell = ws.getCell(row, 1);
+    titleCell.value = 'JADWAL PELAJARAN SELURUH KELAS';
+    titleCell.font = { name: 'Arial', size: 13, bold: true, color: { argb: headerBg } };
+    titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
+    ws.getRow(row).height = 22;
+    row++;
+
+    // Semester info
+    ws.mergeCells(row, 1, row, totalTableCols);
+    const semCell = ws.getCell(row, 1);
+    semCell.value = `${activeSemester.name} — Tahun Pelajaran ${activeSemester.year}`;
+    semCell.font = { name: 'Arial', size: 9, color: { argb: '333333' } };
+    semCell.alignment = { horizontal: 'center', vertical: 'middle' };
+    row++;
+    row++;
+
+    const tableStartRow = row;
+
+    // ============ TABLE HEADER ============
+    const headerRow = row;
+    const headers = ['Hari', 'No', 'Jam'];
+    classes.forEach(c => headers.push(c.name));
+
+    headers.forEach((h, i) => {
+        const cell = ws.getCell(row, i + 1);
+        cell.value = h;
+        cell.font = { name: 'Arial', size: 9, bold: true, color: { argb: 'FFFFFF' } };
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: headerBg } };
+        cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+        cell.border = {
+            top: { style: 'thin', color: { argb: borderColor } },
+            bottom: { style: 'thin', color: { argb: borderColor } },
+            left: { style: 'thin', color: { argb: borderColor } },
+            right: { style: 'thin', color: { argb: borderColor } },
+        };
+    });
+    ws.getRow(row).height = 22;
+    row++;
+
+    // ============ LEGEND HEADER (right side, at same row as table header) ============
+    const legendTitleRow = headerRow - 1;
+    ws.mergeCells(legendTitleRow, legendStartCol, legendTitleRow, legendEndCol);
+    const legendTitle = ws.getCell(legendTitleRow, legendStartCol);
+    legendTitle.value = '📋 LEGENDA GURU';
+    legendTitle.font = { name: 'Arial', size: 10, bold: true, color: { argb: headerBg } };
+    legendTitle.alignment = { horizontal: 'center', vertical: 'middle' };
+
+    const legendHeaders = ['Kode', 'Nama Guru', 'Mata Pelajaran'];
+    legendHeaders.forEach((h, i) => {
+        const cell = ws.getCell(headerRow, legendStartCol + i);
+        cell.value = h;
+        cell.font = { name: 'Arial', size: 8, bold: true, color: { argb: 'FFFFFF' } };
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: legendHeaderBg } };
+        cell.alignment = { horizontal: 'center', vertical: 'middle' };
+        cell.border = {
+            top: { style: 'thin', color: { argb: borderColor } },
+            bottom: { style: 'thin', color: { argb: borderColor } },
+            left: { style: 'thin', color: { argb: borderColor } },
+            right: { style: 'thin', color: { argb: borderColor } },
+        };
+    });
+
+    // ============ LEGEND DATA (right side) ============
+    let legendRow = headerRow + 1;
+    const sortedTeachers = [...teacherInitials.entries()].sort((a, b) => a[1].initials.localeCompare(b[1].initials));
+    sortedTeachers.forEach(([tid, info], idx) => {
+        const isEven = idx % 2 === 0;
+        const rowBg = isEven ? 'FFFFFF' : 'EBF1F8';
+        const codeCell = ws.getCell(legendRow, legendStartCol);
+        codeCell.value = info.initials;
+        codeCell.font = { name: 'Arial', size: 8, bold: true, color: { argb: headerBg } };
+        codeCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: rowBg } };
+        codeCell.alignment = { horizontal: 'center', vertical: 'middle' };
+        codeCell.border = { top: { style: 'thin', color: { argb: borderColor } }, bottom: { style: 'thin', color: { argb: borderColor } }, left: { style: 'thin', color: { argb: borderColor } }, right: { style: 'thin', color: { argb: borderColor } } };
+
+        const nameCell = ws.getCell(legendRow, legendStartCol + 1);
+        nameCell.value = info.name;
+        nameCell.font = { name: 'Arial', size: 8 };
+        nameCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: rowBg } };
+        nameCell.alignment = { vertical: 'middle' };
+        nameCell.border = { top: { style: 'thin', color: { argb: borderColor } }, bottom: { style: 'thin', color: { argb: borderColor } }, left: { style: 'thin', color: { argb: borderColor } }, right: { style: 'thin', color: { argb: borderColor } } };
+
+        const subjCell = ws.getCell(legendRow, legendStartCol + 2);
+        subjCell.value = info.subjects || '-';
+        subjCell.font = { name: 'Arial', size: 8, color: { argb: '555555' } };
+        subjCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: rowBg } };
+        subjCell.alignment = { vertical: 'middle', wrapText: true };
+        subjCell.border = { top: { style: 'thin', color: { argb: borderColor } }, bottom: { style: 'thin', color: { argb: borderColor } }, left: { style: 'thin', color: { argb: borderColor } }, right: { style: 'thin', color: { argb: borderColor } } };
+
+        legendRow++;
+    });
+
+    // ============ TABLE BODY ============
+    DAYS.forEach(day => {
+        const slots = daySlots[day];
+        if (slots.length === 0) return;
+
+        const dayStartRow = row;
+
+        slots.forEach((slot, idx) => {
+            const isBreak = slot.isBreak;
+            const isEvenRow = idx % 2 === 0;
+            const defaultRowBg = isBreak ? breakBg : (isEvenRow ? 'FFFFFF' : lightBg);
+
+            // Hari (only first row of each day group, will merge later)
+            // No
+            const noCell = ws.getCell(row, 2);
+            noCell.value = isBreak ? '' : slot.label;
+            noCell.alignment = { horizontal: 'center', vertical: 'middle' };
+
+            // Jam
+            const jamCell = ws.getCell(row, 3);
+            jamCell.value = isBreak ? `☕ Istirahat` : `${slot.startTime}-${slot.endTime}`;
+            jamCell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+            jamCell.font = { name: 'Arial', size: 8, bold: isBreak };
+
+            // Class columns
+            classes.forEach((cls, ci) => {
+                const cell = ws.getCell(row, fixedCols + ci + 1);
+                if (isBreak) {
+                    cell.value = '';
+                } else {
+                    const entry = DataStore.getScheduleAt(day, slot.id, cls.id);
+                    if (entry) {
+                        const subject = subjects.find(s => s.id === entry.subjectId);
+                        const subCode = subject ? subject.code : '?';
+                        if (entry.teacherId) {
+                            const tInfo = teacherInitials.get(entry.teacherId);
+                            cell.value = `${subCode}\n(${tInfo ? tInfo.initials : '?'})`;
+                        } else {
+                            // Non-pelajaran without teacher
+                            const isNonPelajaran = subject && subject.type && subject.type !== 'pelajaran';
+                            cell.value = isNonPelajaran ? subCode : `${subCode}`;
+                        }
+                    } else {
+                        cell.value = '';
+                    }
+                }
+                cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+                cell.font = { name: 'Arial', size: 8 };
+            });
+
+            // Apply styles to all cells in row
+            for (let c = 1; c <= totalTableCols; c++) {
+                const cell = ws.getCell(row, c);
+                if (!cell.fill || !cell.fill.fgColor) {
+                    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: defaultRowBg } };
+                }
+                cell.border = {
+                    top: { style: 'thin', color: { argb: borderColor } },
+                    bottom: { style: 'thin', color: { argb: borderColor } },
+                    left: { style: 'thin', color: { argb: borderColor } },
+                    right: { style: 'thin', color: { argb: borderColor } },
+                };
+                if (!cell.font) cell.font = { name: 'Arial', size: 8 };
+            }
+
+            ws.getRow(row).height = isBreak ? 16 : 28;
+            row++;
+        });
+
+        const dayEndRow = row - 1;
+
+        // Merge Hari column for this day group
+        if (dayEndRow >= dayStartRow) {
+            ws.mergeCells(dayStartRow, 1, dayEndRow, 1);
+            const dayCell = ws.getCell(dayStartRow, 1);
+            dayCell.value = day.toUpperCase();
+            dayCell.font = { name: 'Arial', size: 9, bold: true, color: { argb: 'FFFFFF' } };
+            dayCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: dayHeaderBg } };
+            dayCell.alignment = { horizontal: 'center', vertical: 'middle', textRotation: 90 };
+            dayCell.border = {
+                top: { style: 'thin', color: { argb: borderColor } },
+                bottom: { style: 'thin', color: { argb: borderColor } },
+                left: { style: 'thin', color: { argb: borderColor } },
+                right: { style: 'thin', color: { argb: borderColor } },
+            };
+        }
+    });
+
+    // ============ TTD SECTION ============
+    row += 2;
+
+    // Date line (right side)
+    const ttdColStart = Math.max(Math.floor(totalTableCols / 2) + 1, 3);
+    const ttdColMid = Math.floor((1 + ttdColStart - 1) / 2) + 1;
+    ws.mergeCells(row, ttdColStart, row, totalTableCols);
+    const dateCell = ws.getCell(row, ttdColStart);
+    const now = new Date();
+    dateCell.value = `.................., ${now.getDate()} ${months[now.getMonth()]} ${now.getFullYear()}`;
+    dateCell.font = { name: 'Arial', size: 10 };
+    dateCell.alignment = { horizontal: 'center' };
+    row++;
+
+    // Titles
+    row++;
+    // Kepala Sekolah (left)
+    ws.mergeCells(row, 1, row, ttdColStart - 1);
+    const kepsekTitle = ws.getCell(row, 1);
+    kepsekTitle.value = 'Kepala Sekolah';
+    kepsekTitle.font = { name: 'Arial', size: 10, bold: true };
+    kepsekTitle.alignment = { horizontal: 'center' };
+
+    // Wakasek Kurikulum (right)
+    ws.mergeCells(row, ttdColStart, row, totalTableCols);
+    const wakasekTitle = ws.getCell(row, ttdColStart);
+    wakasekTitle.value = 'Wakil Kepala Sekolah\nBagian Kurikulum';
+    wakasekTitle.font = { name: 'Arial', size: 10, bold: true };
+    wakasekTitle.alignment = { horizontal: 'center', wrapText: true };
+    ws.getRow(row).height = 30;
+    row++;
+
+    // Spacing for signature
+    row += 3;
+
+    // Names with underline
+    ws.mergeCells(row, 1, row, ttdColStart - 1);
+    const kepsekName = ws.getCell(row, 1);
+    kepsekName.value = school.principal || '..............................';
+    kepsekName.font = { name: 'Arial', size: 10, bold: true, underline: true };
+    kepsekName.alignment = { horizontal: 'center' };
+
+    ws.mergeCells(row, ttdColStart, row, totalTableCols);
+    const wakasekName = ws.getCell(row, ttdColStart);
+    wakasekName.value = school.vicePrincipal || '..............................';
+    wakasekName.font = { name: 'Arial', size: 10, bold: true, underline: true };
+    wakasekName.alignment = { horizontal: 'center' };
+    row++;
+
+    // NIP lines
+    ws.mergeCells(row, 1, row, ttdColStart - 1);
+    const nipKepsek = ws.getCell(row, 1);
+    nipKepsek.value = 'NIP. ..............................';
+    nipKepsek.font = { name: 'Arial', size: 9, color: { argb: '666666' } };
+    nipKepsek.alignment = { horizontal: 'center' };
+
+    ws.mergeCells(row, ttdColStart, row, totalTableCols);
+    const nipWakasek = ws.getCell(row, ttdColStart);
+    nipWakasek.value = 'NIP. ..............................';
+    nipWakasek.font = { name: 'Arial', size: 9, color: { argb: '666666' } };
+    nipWakasek.alignment = { horizontal: 'center' };
+
+    // ============ ALSO ADD PER-CLASS SHEETS ============
+    const teacherColorMap = getTeacherColorMap(teachers);
+
+    for (const cls of classes) {
+        const wsClass = workbook.addWorksheet(`Jadwal ${cls.name}`, {
+            pageSetup: {
+                paperSize: 9,
+                orientation: 'landscape',
+                fitToPage: true,
+                fitToWidth: 1,
+                fitToHeight: 0,
+                margins: { left: 0.5, right: 0.5, top: 0.5, bottom: 0.5, header: 0.3, footer: 0.3 }
+            }
+        });
+
+        wsClass.columns = [
+            { width: 5 }, { width: 14 },
+            { width: 20 }, { width: 20 }, { width: 20 }, { width: 20 }, { width: 20 }, { width: 20 },
+        ];
+
+        let cRow = 1;
+
+        // KOP
+        wsClass.mergeCells(cRow, 1, cRow, 8);
+        wsClass.getCell(cRow, 1).value = (school.name || 'NAMA SEKOLAH').toUpperCase();
+        wsClass.getCell(cRow, 1).font = { name: 'Arial', size: 16, bold: true };
+        wsClass.getCell(cRow, 1).alignment = { horizontal: 'center', vertical: 'middle' };
+        wsClass.getRow(cRow).height = 26;
+        cRow++;
+
+        wsClass.mergeCells(cRow, 1, cRow, 8);
+        wsClass.getCell(cRow, 1).value = school.address || 'Alamat Sekolah';
+        wsClass.getCell(cRow, 1).font = { name: 'Arial', size: 10, color: { argb: '333333' } };
+        wsClass.getCell(cRow, 1).alignment = { horizontal: 'center', vertical: 'middle' };
+        cRow++;
+
+        const classInfoLine = [
+            school.npsn ? `NPSN: ${school.npsn}` : '',
+            school.phone ? `Telp: ${school.phone}` : '',
+            school.email || ''
+        ].filter(Boolean).join('  |  ');
+        if (classInfoLine) {
+            wsClass.mergeCells(cRow, 1, cRow, 8);
+            wsClass.getCell(cRow, 1).value = classInfoLine;
+            wsClass.getCell(cRow, 1).font = { name: 'Arial', size: 9, color: { argb: '666666' } };
+            wsClass.getCell(cRow, 1).alignment = { horizontal: 'center', vertical: 'middle' };
+            cRow++;
+        }
+
+        wsClass.mergeCells(cRow, 1, cRow, 8);
+        wsClass.getCell(cRow, 1).border = { bottom: { style: 'double', color: { argb: '000000' } } };
+        wsClass.getRow(cRow).height = 6;
+        cRow++;
+
+        cRow++;
+        wsClass.mergeCells(cRow, 1, cRow, 8);
+        wsClass.getCell(cRow, 1).value = 'JADWAL PELAJARAN';
+        wsClass.getCell(cRow, 1).font = { name: 'Arial', size: 14, bold: true, color: { argb: headerBg } };
+        wsClass.getCell(cRow, 1).alignment = { horizontal: 'center', vertical: 'middle' };
+        wsClass.getRow(cRow).height = 22;
+        cRow++;
+
+        wsClass.mergeCells(cRow, 1, cRow, 8);
+        wsClass.getCell(cRow, 1).value = `${activeSemester.name} — Tahun Pelajaran ${activeSemester.year}  |  Kelas: ${cls.name}`;
+        wsClass.getCell(cRow, 1).font = { name: 'Arial', size: 10, color: { argb: '333333' } };
+        wsClass.getCell(cRow, 1).alignment = { horizontal: 'center', vertical: 'middle' };
+        cRow++;
+        cRow++;
+
+        // Header
+        const classHeaders = ['No', 'Jam', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+        classHeaders.forEach((h, i) => {
+            const cell = wsClass.getCell(cRow, i + 1);
+            cell.value = h;
+            cell.font = { name: 'Arial', size: 10, bold: true, color: { argb: 'FFFFFF' } };
+            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: headerBg } };
+            cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+            cell.border = { top: { style: 'thin', color: { argb: borderColor } }, bottom: { style: 'thin', color: { argb: borderColor } }, left: { style: 'thin', color: { argb: borderColor } }, right: { style: 'thin', color: { argb: borderColor } } };
+        });
+        wsClass.getRow(cRow).height = 22;
+        cRow++;
+
+        // Body
+        const classDaySlots = {};
+        let classMaxSlots = 0;
+        DAYS.forEach(d => {
+            const s = DataStore.getKbmSlotsForDay(d);
+            classDaySlots[d] = s;
+            if (s.length > classMaxSlots) classMaxSlots = s.length;
+        });
+
+        for (let idx = 0; idx < classMaxSlots; idx++) {
+            let slotLabel = '', timeStr = '', isBreak = false;
+            for (const d of DAYS) {
+                const slot = classDaySlots[d][idx];
+                if (slot) {
+                    slotLabel = slot.isBreak ? 'Istirahat' : slot.label;
+                    timeStr = `${slot.startTime}-${slot.endTime}`;
+                    isBreak = slot.isBreak;
+                    break;
+                }
+            }
+
+            const isEvenRow = idx % 2 === 0;
+            const defaultBg = isBreak ? breakBg : (isEvenRow ? 'FFFFFF' : lightBg);
+
+            wsClass.getCell(cRow, 1).value = idx + 1;
+            wsClass.getCell(cRow, 1).alignment = { horizontal: 'center', vertical: 'middle' };
+
+            wsClass.getCell(cRow, 2).value = isBreak ? `☕ ${slotLabel}` : `${slotLabel}\n${timeStr}`;
+            wsClass.getCell(cRow, 2).alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+            wsClass.getCell(cRow, 2).font = { name: 'Arial', size: 9, bold: isBreak };
+
+            DAYS.forEach((d, di) => {
+                const cell = wsClass.getCell(cRow, di + 3);
+                const slot = classDaySlots[d][idx];
+                if (!slot) {
+                    cell.value = '-';
+                    cell.alignment = { horizontal: 'center', vertical: 'middle' };
+                } else if (slot.isBreak) {
+                    cell.value = '';
+                } else {
+                    const entry = DataStore.getScheduleAt(d, slot.id, cls.id);
+                    if (entry) {
+                        const teacher = teachers.find(t => t.id === entry.teacherId);
+                        const subject = subjects.find(s => s.id === entry.subjectId);
+                        cell.value = `${subject ? subject.code : ''}\n${teacher ? teacher.name : ''}`;
+                        const tc = teacher ? teacherColorMap.get(teacher.id) : null;
+                        if (tc) {
+                            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: tc.excelBg } };
+                            cell.font = { name: 'Arial', size: 9, bold: true, color: { argb: tc.excelText } };
+                        } else {
+                            cell.font = { name: 'Arial', size: 9 };
+                        }
+                    } else {
+                        cell.value = '';
+                    }
+                    cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+                }
+            });
+
+            for (let c = 1; c <= 8; c++) {
+                const cell = wsClass.getCell(cRow, c);
+                if (!cell.fill || !cell.fill.fgColor) {
+                    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: defaultBg } };
+                }
+                cell.border = { top: { style: 'thin', color: { argb: borderColor } }, bottom: { style: 'thin', color: { argb: borderColor } }, left: { style: 'thin', color: { argb: borderColor } }, right: { style: 'thin', color: { argb: borderColor } } };
+                if (!cell.font) cell.font = { name: 'Arial', size: 9 };
+            }
+            wsClass.getRow(cRow).height = isBreak ? 18 : 30;
+            cRow++;
+        }
+
+        // TTD
+        cRow += 2;
+        wsClass.mergeCells(cRow, 5, cRow, 8);
+        const cDateCell = wsClass.getCell(cRow, 5);
+        cDateCell.value = `.................., ${now.getDate()} ${months[now.getMonth()]} ${now.getFullYear()}`;
+        cDateCell.font = { name: 'Arial', size: 10 };
+        cDateCell.alignment = { horizontal: 'center' };
+        cRow++;
+
+        cRow++;
+        // Kepala Sekolah (left)
+        wsClass.mergeCells(cRow, 1, cRow, 4);
+        wsClass.getCell(cRow, 1).value = 'Kepala Sekolah';
+        wsClass.getCell(cRow, 1).font = { name: 'Arial', size: 10, bold: true };
+        wsClass.getCell(cRow, 1).alignment = { horizontal: 'center' };
+
+        // Wakasek Kurikulum (right)
+        wsClass.mergeCells(cRow, 5, cRow, 8);
+        wsClass.getCell(cRow, 5).value = 'Wakil Kepala Sekolah\nBagian Kurikulum';
+        wsClass.getCell(cRow, 5).font = { name: 'Arial', size: 10, bold: true };
+        wsClass.getCell(cRow, 5).alignment = { horizontal: 'center', wrapText: true };
+        wsClass.getRow(cRow).height = 30;
+        cRow++;
+
+        cRow += 3;
+        // Kepala Sekolah name
+        wsClass.mergeCells(cRow, 1, cRow, 4);
+        wsClass.getCell(cRow, 1).value = school.principal || '..............................';
+        wsClass.getCell(cRow, 1).font = { name: 'Arial', size: 10, bold: true, underline: true };
+        wsClass.getCell(cRow, 1).alignment = { horizontal: 'center' };
+
+        // Wakasek name
+        wsClass.mergeCells(cRow, 5, cRow, 8);
+        wsClass.getCell(cRow, 5).value = school.vicePrincipal || '..............................';
+        wsClass.getCell(cRow, 5).font = { name: 'Arial', size: 10, bold: true, underline: true };
+        wsClass.getCell(cRow, 5).alignment = { horizontal: 'center' };
+        cRow++;
+
+        // NIP lines
+        wsClass.mergeCells(cRow, 1, cRow, 4);
+        wsClass.getCell(cRow, 1).value = 'NIP. ..............................';
+        wsClass.getCell(cRow, 1).font = { name: 'Arial', size: 9, color: { argb: '666666' } };
+        wsClass.getCell(cRow, 1).alignment = { horizontal: 'center' };
+
+        wsClass.mergeCells(cRow, 5, cRow, 8);
+        wsClass.getCell(cRow, 5).value = 'NIP. ..............................';
+        wsClass.getCell(cRow, 5).font = { name: 'Arial', size: 9, color: { argb: '666666' } };
+        wsClass.getCell(cRow, 5).alignment = { horizontal: 'center' };
+    }
+
+    // Save
+    const buffer = await workbook.xlsx.writeBuffer();
+    const schoolName = (school.name || 'Sekolah').replace(/[^a-zA-Z0-9 ]/g, '').replace(/\s+/g, '_');
+    const semName = (activeSemester.name || 'Semester').replace(/[^a-zA-Z0-9 ]/g, '').replace(/\s+/g, '_');
+    const filename = `Jadwal_Lengkap_${schoolName}_${semName}.xlsx`;
 
     saveAs(new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), filename);
 }

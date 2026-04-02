@@ -4,6 +4,7 @@ import { showToast } from '../components/toast.js';
 
 export function renderSchool() {
   const school = DataStore.getSchool();
+  const settings = DataStore.getSettings();
 
   return `
     <div class="page-enter">
@@ -104,6 +105,22 @@ export function renderSchool() {
           </div>
         </form>
       </div>
+
+      <!-- Pengaturan Tampilan -->
+      <div class="card" style="margin-top: 20px;">
+        <h3 style="margin-bottom: 16px; font-size: 1rem;">⚙️ Pengaturan Tampilan</h3>
+        <div class="form-group">
+          <label style="margin-bottom: 8px; font-weight: 600;">Tampilan Status Kehadiran</label>
+          <div style="display: flex; gap: 12px;">
+            <button class="btn ${settings.attendanceDisplay === 'emoji' ? 'btn-primary' : 'btn-secondary'}" id="attDisplayEmoji" style="flex: 1; padding: 12px; font-size: 0.9rem;">
+              ✅🕐🤒📋❌<br><span style="font-size: 0.78rem; opacity: 0.8;">Emoji</span>
+            </button>
+            <button class="btn ${settings.attendanceDisplay === 'text' ? 'btn-primary' : 'btn-secondary'}" id="attDisplayText" style="flex: 1; padding: 12px; font-size: 0.9rem;">
+              H &nbsp; T &nbsp; S &nbsp; I &nbsp; A<br><span style="font-size: 0.78rem; opacity: 0.8;">Teks</span>
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   `;
 }
@@ -174,5 +191,19 @@ export function initSchool() {
     const display = document.getElementById('schoolNameDisplay');
     if (display) display.textContent = data.name || 'Nama Sekolah';
     showToast('Identitas sekolah berhasil disimpan!', 'success');
+  });
+
+  // Attendance display toggle
+  document.getElementById('attDisplayEmoji')?.addEventListener('click', () => {
+    DataStore.saveSettings({ attendanceDisplay: 'emoji' });
+    document.getElementById('attDisplayEmoji').className = 'btn btn-primary';
+    document.getElementById('attDisplayText').className = 'btn btn-secondary';
+    showToast('Tampilan kehadiran: Emoji', 'success');
+  });
+  document.getElementById('attDisplayText')?.addEventListener('click', () => {
+    DataStore.saveSettings({ attendanceDisplay: 'text' });
+    document.getElementById('attDisplayText').className = 'btn btn-primary';
+    document.getElementById('attDisplayEmoji').className = 'btn btn-secondary';
+    showToast('Tampilan kehadiran: Teks', 'success');
   });
 }

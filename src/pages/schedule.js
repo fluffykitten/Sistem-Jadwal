@@ -1,7 +1,7 @@
 // Schedule Builder page — drag & drop with per-day KBM profiles
 import DataStore from '../dataStore.js';
 import { showToast } from '../components/toast.js';
-import { exportScheduleToExcel } from '../utils/excelExport.js';
+import { exportScheduleToExcel, exportFullScheduleToExcel } from '../utils/excelExport.js';
 import { downloadScheduleTemplate, importScheduleFromExcel } from '../utils/excelImport.js';
 import { getTeacherColorMap } from '../utils/teacherColors.js';
 import { openModal } from '../components/modal.js';
@@ -203,7 +203,13 @@ export function renderSchedule() {
         </div>
         <div style="display: flex; gap: 8px;">
           <button class="btn btn-secondary" id="importScheduleBtn">📥 Import Excel</button>
-          <button class="btn btn-success" id="exportExcelBtn">📥 Ekspor ke Excel</button>
+          <div class="export-dropdown-wrap" style="position: relative;">
+            <button class="btn btn-success" id="exportDropdownBtn">📥 Ekspor Excel ▾</button>
+            <div class="export-dropdown hidden" id="exportDropdown" style="position:absolute; right:0; top:100%; margin-top:4px; background:var(--bg-secondary); border:1px solid var(--border-color); border-radius:var(--radius-sm); box-shadow:var(--shadow-md); z-index:50; min-width:220px; overflow:hidden;">
+              <button class="export-dropdown-item" id="exportPerClassBtn" style="display:block; width:100%; padding:10px 16px; border:none; background:none; color:var(--text-primary); font-size:0.85rem; font-family:inherit; text-align:left; cursor:pointer; transition:background 0.15s;">📄 Ekspor Per Kelas</button>
+              <button class="export-dropdown-item" id="exportFullBtn" style="display:block; width:100%; padding:10px 16px; border:none; background:none; color:var(--text-primary); font-size:0.85rem; font-family:inherit; text-align:left; cursor:pointer; transition:background 0.15s; border-top:1px solid var(--border-color);">📋 Ekspor Jadwal Lengkap</button>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -248,7 +254,7 @@ export function initSchedule(refreshPage) {
   document.querySelectorAll('.class-tab').forEach(tab => {
     tab.addEventListener('click', () => {
       selectedClassId = tab.dataset.classId;
-      refreshPage();
+      updateScheduleGrid(refreshPage);
     });
   });
 
@@ -274,13 +280,31 @@ export function initSchedule(refreshPage) {
       e.stopPropagation();
       DataStore.removeSchedule(btn.dataset.scheduleId);
       showToast('Jadwal dihapus', 'info');
-      refreshPage();
+      updateScheduleGrid(refreshPage);
     });
   });
 
-  // Export Excel
-  document.getElementById('exportExcelBtn')?.addEventListener('click', () => {
+  // Export dropdown toggle
+  document.getElementById('exportDropdownBtn')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    document.getElementById('exportDropdown')?.classList.toggle('hidden');
+  });
+
+  // Close export dropdown on outside click
+  document.addEventListener('click', () => {
+    document.getElementById('exportDropdown')?.classList.add('hidden');
+  });
+
+  // Export Per Kelas
+  document.getElementById('exportPerClassBtn')?.addEventListener('click', () => {
+    document.getElementById('exportDropdown')?.classList.add('hidden');
     exportScheduleToExcel();
+  });
+
+  // Export Jadwal Lengkap
+  document.getElementById('exportFullBtn')?.addEventListener('click', () => {
+    document.getElementById('exportDropdown')?.classList.add('hidden');
+    exportFullScheduleToExcel();
   });
 
   // Import Excel
@@ -360,19 +384,54 @@ export function initSchedule(refreshPage) {
   });
 }
 
+let currentDragData = null;
+
+function updateScheduleGrid(refreshPage) {
+  const tempDiv = document.createElement('div');
+  tempDiv.innerHTML = renderSchedule();
+
+  const newClassTabs = tempDiv.querySelector('#classTabs');
+  const newGrid = tempDiv.querySelector('#scheduleGrid');
+
+  if (newClassTabs && document.getElementById('classTabs')) {
+    document.getElementById('classTabs').innerHTML = newClassTabs.innerHTML;
+  }
+  if (newGrid && document.getElementById('scheduleGrid')) {
+    document.getElementById('scheduleGrid').innerHTML = newGrid.innerHTML;
+  }
+
+  // Re-attach class tab events
+  document.querySelectorAll('.class-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      selectedClassId = tab.dataset.classId;
+      updateScheduleGrid(refreshPage);
+    });
+  });
+
+  // Re-attach remove events
+  document.querySelectorAll('.entry-remove').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      DataStore.removeSchedule(btn.dataset.scheduleId);
+      showToast('Jadwal dihapus', 'info');
+      updateScheduleGrid(refreshPage);
+    });
+  });
+
+  // Re-attach cell drag & drop
+  setupCellDragAndDrop(refreshPage);
+}
+
 function setupDragAndDrop(refreshPage) {
   const teacherCards = document.querySelectorAll('.teacher-card');
   const subjectCards = document.querySelectorAll('.subject-card');
-  const cells = document.querySelectorAll('.schedule-cell:not(.is-break)');
-
-  let dragData = null;
 
   // Teacher card drag
   teacherCards.forEach(card => {
     card.addEventListener('dragstart', (e) => {
       const teacherId = card.dataset.teacherId;
       const subjectIds = (card.dataset.subjectIds || '').split(',').filter(Boolean);
-      dragData = { type: 'teacher', teacherId, subjectIds };
+      currentDragData = { type: 'teacher', teacherId, subjectIds };
       e.dataTransfer.setData('text/plain', teacherId);
       e.dataTransfer.effectAllowed = 'copy';
       card.classList.add('dragging');
@@ -380,8 +439,8 @@ function setupDragAndDrop(refreshPage) {
 
     card.addEventListener('dragend', () => {
       card.classList.remove('dragging');
-      dragData = null;
-      cells.forEach(c => { c.classList.remove('drag-over', 'conflict'); });
+      currentDragData = null;
+      document.querySelectorAll('.schedule-cell').forEach(c => { c.classList.remove('drag-over', 'conflict'); });
     });
   });
 
@@ -389,7 +448,7 @@ function setupDragAndDrop(refreshPage) {
   subjectCards.forEach(card => {
     card.addEventListener('dragstart', (e) => {
       const subjectId = card.dataset.subjectId;
-      dragData = { type: 'subject', subjectId, teacherId: null };
+      currentDragData = { type: 'subject', subjectId, teacherId: null };
       e.dataTransfer.setData('text/plain', subjectId);
       e.dataTransfer.effectAllowed = 'copy';
       card.classList.add('dragging');
@@ -397,10 +456,16 @@ function setupDragAndDrop(refreshPage) {
 
     card.addEventListener('dragend', () => {
       card.classList.remove('dragging');
-      dragData = null;
-      cells.forEach(c => { c.classList.remove('drag-over', 'conflict'); });
+      currentDragData = null;
+      document.querySelectorAll('.schedule-cell').forEach(c => { c.classList.remove('drag-over', 'conflict'); });
     });
   });
+
+  setupCellDragAndDrop(refreshPage);
+}
+
+function setupCellDragAndDrop(refreshPage) {
+  const cells = document.querySelectorAll('.schedule-cell:not(.is-break)');
 
   cells.forEach(cell => {
     if (!cell.dataset.day) return;
@@ -409,19 +474,18 @@ function setupDragAndDrop(refreshPage) {
       e.preventDefault();
       e.dataTransfer.dropEffect = 'copy';
 
-      if (dragData) {
+      if (currentDragData) {
         cell.classList.remove('drag-over', 'conflict');
 
-        if (dragData.type === 'subject') {
-          // Non-pelajaran: no conflict check needed
+        if (currentDragData.type === 'subject') {
           cell.classList.add('drag-over');
         } else {
           const day = cell.dataset.day;
           const slotId = cell.dataset.slotId;
           const subjects = DataStore.getSubjects();
-          const dragSubjects = (dragData.subjectIds || []).map(sid => subjects.find(s => s.id === sid)).filter(Boolean);
+          const dragSubjects = (currentDragData.subjectIds || []).map(sid => subjects.find(s => s.id === sid)).filter(Boolean);
           const allNonPelajaran = dragSubjects.length > 0 && dragSubjects.every(s => s.type && s.type !== 'pelajaran');
-          const hasConflict = allNonPelajaran ? false : DataStore.hasConflict(dragData.teacherId, day, slotId);
+          const hasConflict = allNonPelajaran ? false : DataStore.hasConflict(currentDragData.teacherId, day, slotId);
 
           if (hasConflict) {
             cell.classList.add('conflict');
@@ -440,7 +504,7 @@ function setupDragAndDrop(refreshPage) {
       e.preventDefault();
       cell.classList.remove('drag-over', 'conflict');
 
-      if (!dragData) return;
+      if (!currentDragData) return;
 
       const day = cell.dataset.day;
       const slotId = cell.dataset.slotId;
@@ -452,16 +516,14 @@ function setupDragAndDrop(refreshPage) {
         return;
       }
 
-      if (dragData.type === 'subject') {
-        // Direct non-pelajaran subject placement (no teacher)
-        DataStore.addSchedule({ teacherId: null, subjectId: dragData.subjectId, day, kbmSlotId: slotId, classId });
+      if (currentDragData.type === 'subject') {
+        DataStore.addSchedule({ teacherId: null, subjectId: currentDragData.subjectId, day, kbmSlotId: slotId, classId });
         showToast('Kegiatan berhasil ditambahkan!', 'success');
-        refreshPage();
+        updateScheduleGrid(refreshPage);
       } else {
-        // Teacher-based placement
-        const teacherId = dragData.teacherId;
+        const teacherId = currentDragData.teacherId;
         const subjects = DataStore.getSubjects();
-        const dragSubjects = (dragData.subjectIds || []).map(sid => subjects.find(s => s.id === sid)).filter(Boolean);
+        const dragSubjects = (currentDragData.subjectIds || []).map(sid => subjects.find(s => s.id === sid)).filter(Boolean);
         const allNonPelajaran = dragSubjects.length > 0 && dragSubjects.every(s => s.type && s.type !== 'pelajaran');
 
         if (!allNonPelajaran && DataStore.hasConflict(teacherId, day, slotId)) {
@@ -469,14 +531,14 @@ function setupDragAndDrop(refreshPage) {
           return;
         }
 
-        const subjectId = dragData.subjectIds.length > 0 ? dragData.subjectIds[0] : null;
+        const subjectId = currentDragData.subjectIds.length > 0 ? currentDragData.subjectIds[0] : null;
 
-        if (dragData.subjectIds.length > 1) {
-          showSubjectPicker(teacherId, dragData.subjectIds, day, slotId, classId, refreshPage);
+        if (currentDragData.subjectIds.length > 1) {
+          showSubjectPicker(teacherId, currentDragData.subjectIds, day, slotId, classId, refreshPage);
         } else {
           DataStore.addSchedule({ teacherId, subjectId, day, kbmSlotId: slotId, classId });
           showToast('Jadwal berhasil ditambahkan!', 'success');
-          refreshPage();
+          updateScheduleGrid(refreshPage);
         }
       }
     });
@@ -539,7 +601,7 @@ function showSubjectPicker(teacherId, subjectIds, day, slotId, classId, refreshP
       });
       closeModal();
       showToast('Jadwal berhasil ditambahkan!', 'success');
-      refreshPage();
+      updateScheduleGrid(refreshPage);
     });
   });
 }

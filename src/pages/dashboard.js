@@ -5,13 +5,26 @@ import { getTeacherColorMap } from '../utils/teacherColors.js';
 
 const DAYS = ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
 const DAY_MAP = { 1: 'Senin', 2: 'Selasa', 3: 'Rabu', 4: 'Kamis', 5: 'Jumat', 6: 'Sabtu', 0: 'Minggu' };
-const STATUSES = [
-  { key: 'hadir', icon: '✅', label: 'Hadir' },
-  { key: 'terlambat', icon: '🕐', label: 'Terlambat' },
-  { key: 'sakit', icon: '🤒', label: 'Sakit' },
-  { key: 'izin', icon: '📋', label: 'Izin' },
-  { key: 'alfa', icon: '❌', label: 'Alfa' },
-];
+
+function getStatuses() {
+  const mode = DataStore.getSettings().attendanceDisplay || 'emoji';
+  if (mode === 'text') {
+    return [
+      { key: 'hadir', icon: 'H', label: 'Hadir' },
+      { key: 'terlambat', icon: 'T', label: 'Terlambat' },
+      { key: 'sakit', icon: 'S', label: 'Sakit' },
+      { key: 'izin', icon: 'I', label: 'Izin' },
+      { key: 'alfa', icon: 'A', label: 'Alfa' },
+    ];
+  }
+  return [
+    { key: 'hadir', icon: '\u2705', label: 'Hadir' },
+    { key: 'terlambat', icon: '\uD83D\uDD50', label: 'Terlambat' },
+    { key: 'sakit', icon: '\uD83E\uDD12', label: 'Sakit' },
+    { key: 'izin', icon: '\uD83D\uDCCB', label: 'Izin' },
+    { key: 'alfa', icon: '\u274C', label: 'Alfa' },
+  ];
+}
 
 let selectedDay = null;
 let selectedDate = '';
@@ -173,7 +186,7 @@ export function renderDashboard() {
         const record = attMap.get(key); // null = belum diisi
         const status = record ? record.status : null; // null means not yet marked
 
-        const statusBtns = STATUSES.map(s =>
+        const statusBtns = getStatuses().map(s =>
           `<button class="att-btn att-${s.key} ${status === s.key ? 'active' : ''}" data-status="${s.key}" data-teacher="${t.id}" data-slot="${slot.id}" data-class="${cls.id}" title="${s.label}">${s.icon}</button>`
         ).join('');
 
@@ -202,7 +215,7 @@ export function renderDashboard() {
       }).join('');
 
       // "Tandai Semua" dropdown
-      const markAllOptions = STATUSES.map(s =>
+      const markAllOptions = getStatuses().map(s =>
         `<button class="mark-all-option" data-teacher="${t.id}" data-status="${s.key}">${s.icon} ${s.label}</button>`
       ).join('');
 
@@ -266,17 +279,26 @@ export function renderDashboard() {
       </div>
 
       ${totalSlots > 0 ? `
-      <div class="att-summary">
-        ${belumCount > 0 ? `<div class="att-summary-item att-s-belum"><span class="att-s-count">${belumCount}</span><span class="att-s-label">Belum Diisi</span></div>` : ''}
-        <div class="att-summary-item att-s-hadir"><span class="att-s-count">${hadirCount}</span><span class="att-s-label">Hadir</span></div>
-        <div class="att-summary-item att-s-terlambat"><span class="att-s-count">${terlambatCount}</span><span class="att-s-label">Terlambat</span></div>
-        <div class="att-summary-item att-s-sakit"><span class="att-s-count">${sakitCount}</span><span class="att-s-label">Sakit</span></div>
-        <div class="att-summary-item att-s-izin"><span class="att-s-count">${izinCount}</span><span class="att-s-label">Izin</span></div>
-        <div class="att-summary-item att-s-alfa"><span class="att-s-count">${alfaCount}</span><span class="att-s-label">Alfa</span></div>
+      <div class="att-summary" id="attSummary">
+        <div class="att-summary-item att-s-belum" id="summaryBelum" style="${belumCount > 0 ? '' : 'display:none'}"><span class="att-s-count" id="countBelum">${belumCount}</span><span class="att-s-label">Belum Diisi</span></div>
+        <div class="att-summary-item att-s-hadir"><span class="att-s-count" id="countHadir">${hadirCount}</span><span class="att-s-label">Hadir</span></div>
+        <div class="att-summary-item att-s-terlambat"><span class="att-s-count" id="countTerlambat">${terlambatCount}</span><span class="att-s-label">Terlambat</span></div>
+        <div class="att-summary-item att-s-sakit"><span class="att-s-count" id="countSakit">${sakitCount}</span><span class="att-s-label">Sakit</span></div>
+        <div class="att-summary-item att-s-izin"><span class="att-s-count" id="countIzin">${izinCount}</span><span class="att-s-label">Izin</span></div>
+        <div class="att-summary-item att-s-alfa"><span class="att-s-count" id="countAlfa">${alfaCount}</span><span class="att-s-label">Alfa</span></div>
       </div>
       ` : ''}
 
-      <div class="dashboard-two-col">
+      <!-- Presensi Guru (full-width, atas) -->
+      <div class="card" style="margin-bottom: 20px;">
+        <div class="card-header">
+          <span class="card-title">✅ Presensi Guru (${teachersWithSlots.length} guru, ${totalSlots} jam)</span>
+        </div>
+        <div class="att-list" id="attendanceList">${attendanceCards}</div>
+      </div>
+
+      <!-- Jadwal + Catatan (bawah, 2 kolom) -->
+      <div class="dashboard-bottom-row">
         <div class="card">
           <div class="card-header">
             <span class="card-title">📋 Jadwal Hari ${selectedDay}</span>
@@ -289,24 +311,99 @@ export function renderDashboard() {
           </div>
         </div>
 
-        <div class="dashboard-right-col">
-          <div class="card">
-            <div class="card-header">
-              <span class="card-title">✅ Presensi Guru (${teachersWithSlots.length} guru, ${totalSlots} jam)</span>
-            </div>
-            <div class="att-list" id="attendanceList">${attendanceCards}</div>
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">📝 Catatan Hari Ini</span>
           </div>
-
-          <div class="card">
-            <div class="card-header">
-              <span class="card-title">📝 Catatan Hari Ini</span>
-            </div>
-            <textarea class="form-control att-notes" id="dailyNotes" placeholder="Tulis catatan untuk hari ini..." rows="4">${attendance.notes || ''}</textarea>
-          </div>
+          <textarea class="form-control att-notes" id="dailyNotes" placeholder="Tulis catatan untuk hari ini..." rows="4">${attendance.notes || ''}</textarea>
         </div>
       </div>
     </div>
   `;
+}
+
+// --- Partial DOM update helpers (no page refresh) ---
+
+function updateSlotUI(teacherId, slotId, classId, newStatus) {
+  const row = document.querySelector(`.att-slot-row[data-teacher="${teacherId}"][data-slot="${slotId}"][data-class="${classId}"]`);
+  if (!row) return;
+
+  // Update button active states
+  row.querySelectorAll('.att-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.status === newStatus);
+  });
+
+  // Update unmarked indicator
+  row.classList.toggle('att-unmarked', newStatus === null);
+
+  // Handle sub-options
+  const existingSub = row.querySelector('.att-sub-options');
+  if (existingSub) existingSub.remove();
+
+  if (newStatus === 'sakit') {
+    const subHtml = document.createElement('div');
+    subHtml.className = 'att-sub-options';
+    subHtml.innerHTML = `
+      <label class="att-checkbox"><input type="checkbox" data-field="suratDokter" data-teacher="${teacherId}" data-slot="${slotId}" data-class="${classId}"> Surat Dokter</label>
+      <label class="att-checkbox"><input type="checkbox" data-field="menitipkanTugas" data-teacher="${teacherId}" data-slot="${slotId}" data-class="${classId}"> Menitipkan Tugas</label>
+    `;
+    row.appendChild(subHtml);
+    bindSubOptionCheckboxes(subHtml);
+  } else if (newStatus === 'izin') {
+    const subHtml = document.createElement('div');
+    subHtml.className = 'att-sub-options';
+    subHtml.innerHTML = `
+      <label class="att-checkbox"><input type="checkbox" data-field="menitipkanTugas" data-teacher="${teacherId}" data-slot="${slotId}" data-class="${classId}"> Menitipkan Tugas</label>
+    `;
+    row.appendChild(subHtml);
+    bindSubOptionCheckboxes(subHtml);
+  }
+}
+
+function recalcAndUpdateSummary() {
+  const attendance = DataStore.getAttendance(selectedDate) || { entries: [], notes: '' };
+  const attEntries = attendance.entries || [];
+  const attMap = new Map();
+  attEntries.forEach(e => attMap.set(entryKey(e.teacherId, e.kbmSlotId, e.classId), e));
+
+  let totalSlots = 0, hadir = 0, terlambat = 0, sakit = 0, izin = 0, alfa = 0, belum = 0;
+
+  // Count from all att-slot-row in DOM
+  document.querySelectorAll('.att-slot-row').forEach(row => {
+    totalSlots++;
+    const key = entryKey(row.dataset.teacher, row.dataset.slot, row.dataset.class);
+    const r = attMap.get(key);
+    if (!r) { belum++; return; }
+    const s = r.status;
+    if (s === 'hadir') hadir++;
+    else if (s === 'terlambat') terlambat++;
+    else if (s === 'sakit') sakit++;
+    else if (s === 'izin') izin++;
+    else if (s === 'alfa') alfa++;
+    else belum++;
+  });
+
+  // Update DOM counters
+  const setCount = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+  setCount('countBelum', belum);
+  setCount('countHadir', hadir);
+  setCount('countTerlambat', terlambat);
+  setCount('countSakit', sakit);
+  setCount('countIzin', izin);
+  setCount('countAlfa', alfa);
+
+  const belumEl = document.getElementById('summaryBelum');
+  if (belumEl) belumEl.style.display = belum > 0 ? '' : 'none';
+}
+
+function bindSubOptionCheckboxes(container) {
+  container.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+    cb.addEventListener('change', () => {
+      const { teacher, slot, class: classId, field } = cb.dataset;
+      const current = getSlotAttendance(teacher, slot, classId);
+      updateSlotAttendance(teacher, slot, classId, { ...current, [field]: cb.checked });
+    });
+  });
 }
 
 export function initDashboard(refreshPage) {
@@ -334,23 +431,18 @@ export function initDashboard(refreshPage) {
     });
   });
 
-  // Per-slot status buttons
+  // Per-slot status buttons — NO page refresh
   document.querySelectorAll('.att-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       const { teacher, slot, class: classId, status } = btn.dataset;
       updateSlotAttendance(teacher, slot, classId, { status, suratDokter: false, menitipkanTugas: false });
-      refreshPage();
+      updateSlotUI(teacher, slot, classId, status);
+      recalcAndUpdateSummary();
     });
   });
 
   // Per-slot sub-option checkboxes
-  document.querySelectorAll('.att-sub-options input[type="checkbox"]').forEach(cb => {
-    cb.addEventListener('change', () => {
-      const { teacher, slot, class: classId, field } = cb.dataset;
-      const current = getSlotAttendance(teacher, slot, classId);
-      updateSlotAttendance(teacher, slot, classId, { ...current, [field]: cb.checked });
-    });
-  });
+  bindSubOptionCheckboxes(document);
 
   // "Tandai Semua" toggle
   document.querySelectorAll('.mark-all-toggle').forEach(btn => {
@@ -365,7 +457,7 @@ export function initDashboard(refreshPage) {
     });
   });
 
-  // "Tandai Semua" options
+  // "Tandai Semua" options — NO page refresh
   document.querySelectorAll('.mark-all-option').forEach(btn => {
     btn.addEventListener('click', () => {
       const teacherId = btn.dataset.teacher;
@@ -374,8 +466,11 @@ export function initDashboard(refreshPage) {
         const slotId = row.dataset.slot;
         const classId = row.dataset.class;
         updateSlotAttendance(teacherId, slotId, classId, { status, suratDokter: false, menitipkanTugas: false });
+        updateSlotUI(teacherId, slotId, classId, status);
       });
-      refreshPage();
+      recalcAndUpdateSummary();
+      // Close dropdown
+      document.getElementById(`markAll_${teacherId}`)?.classList.add('hidden');
       showToast(`Semua jam ditandai ${status}`, 'info');
     });
   });

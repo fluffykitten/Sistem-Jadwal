@@ -1826,7 +1826,15 @@ textarea.form-control {
   font-weight: 500;
 }
 
-/* --- Dashboard: Two columns --- */
+/* --- Dashboard: Two columns (bottom: jadwal + catatan) --- */
+.dashboard-bottom-row {
+  display: grid;
+  grid-template-columns: 1.5fr 1fr;
+  gap: 20px;
+  align-items: start;
+}
+
+/* Keep old class for backward compat */
 .dashboard-two-col {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -2163,6 +2171,10 @@ textarea.form-control {
 /* Responsive */
 @media (max-width: 900px) {
   .dashboard-two-col {
+    grid-template-columns: 1fr;
+  }
+
+  .dashboard-bottom-row {
     grid-template-columns: 1fr;
   }
 }

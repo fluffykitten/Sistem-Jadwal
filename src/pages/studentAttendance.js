@@ -4,13 +4,25 @@ import { showToast } from '../components/toast.js';
 const DAYS = ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
 const DAY_MAP = { 1: 'Senin', 2: 'Selasa', 3: 'Rabu', 4: 'Kamis', 5: 'Jumat', 6: 'Sabtu', 0: 'Minggu' };
 
-const STATUSES = [
-  { key: 'hadir', icon: '✅', label: 'Hadir' },
-  { key: 'terlambat', icon: '🕐', label: 'Terlambat' },
-  { key: 'sakit', icon: '🤒', label: 'Sakit' },
-  { key: 'izin', icon: '📋', label: 'Izin' },
-  { key: 'alfa', icon: '❌', label: 'Alfa' },
-];
+function getStatuses() {
+  const mode = DataStore.getSettings().attendanceDisplay || 'emoji';
+  if (mode === 'text') {
+    return [
+      { key: 'hadir', icon: 'H', label: 'Hadir' },
+      { key: 'terlambat', icon: 'T', label: 'Terlambat' },
+      { key: 'sakit', icon: 'S', label: 'Sakit' },
+      { key: 'izin', icon: 'I', label: 'Izin' },
+      { key: 'alfa', icon: 'A', label: 'Alfa' },
+    ];
+  }
+  return [
+    { key: 'hadir', icon: '\u2705', label: 'Hadir' },
+    { key: 'terlambat', icon: '\uD83D\uDD50', label: 'Terlambat' },
+    { key: 'sakit', icon: '\uD83E\uDD12', label: 'Sakit' },
+    { key: 'izin', icon: '\uD83D\uDCCB', label: 'Izin' },
+    { key: 'alfa', icon: '\u274C', label: 'Alfa' },
+  ];
+}
 
 let selectedDay = null;
 let selectedClassId = '';
@@ -119,7 +131,7 @@ export function renderStudentAttendance() {
       const record = records[student.id];
       const genderLabel = student.gender === 'P' ? 'Perempuan' : (student.gender === 'L' ? 'Laki-laki' : '');
 
-      const statusBtns = STATUSES.map(s =>
+      const statusBtns = getStatuses().map(s =>
         `<button class="att-btn att-${s.key} ${record.status === s.key ? 'active' : ''}" data-status="${s.key}" data-student="${student.id}" title="${s.label}">${s.icon}</button>`
       ).join('');
 
